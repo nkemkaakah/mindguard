@@ -38,7 +38,6 @@ const performDailyCheckIn = tool({
   description: "Perform a daily wellness check-in with the user. Ask how they're feeling, analyze their emotional state, and provide recommendations.",
   inputSchema: z.object({}),
   execute: async () => {
-    const { agent } = getCurrentAgent<MindGuard>();
     // The agent will handle the conversation flow through the chat interface
     return "Check-in initiated. Please share how you're feeling today.";
   }
@@ -143,6 +142,46 @@ const getCheckInHistory = tool({
   }
 });
 
+/**
+ * Update agent name
+ * Allows users to customize their AI agent's display name
+ */
+const updateAgentName = tool({
+  description: "Update the agent's display name. This is the name shown above agent messages in the chat interface.",
+  inputSchema: z.object({
+    name: z.string().min(1).max(50).describe("The new name for the agent (1-50 characters)")
+  }),
+  execute: async ({ name }) => {
+    const { agent } = getCurrentAgent<MindGuard>();
+    try {
+      await agent!.updateAgentName(name);
+      return `Agent name updated to "${name}" successfully.`;
+    } catch (error) {
+      console.error("Error updating agent name:", error);
+      return `Error updating agent name: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+});
+
+/**
+ * Get current agent name
+ * Retrieves the user's customized agent name
+ */
+const getAgentName = tool({
+  description: "Get the current agent display name.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    const { agent } = getCurrentAgent<MindGuard>();
+    try {
+      const name = await agent!.getAgentName();
+      return `Current agent name: "${name}"`;
+    } catch (error) {
+      console.error("Error getting agent name:", error);
+      return `Error getting agent name: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+});
+
 const scheduleTask = tool({
   description: "A tool to schedule a task to be executed at a later time. Can be used to schedule daily check-ins or other wellness reminders.",
   inputSchema: scheduleSchema,
@@ -227,6 +266,8 @@ export const tools = {
   getMindfulnessRecommendations,
   saveCheckInData,
   getCheckInHistory,
+  updateAgentName,
+  getAgentName,
   scheduleTask,
   getScheduledTasks,
   cancelScheduledTask

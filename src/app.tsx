@@ -22,7 +22,10 @@ import {
   Sun,
   Trash,
   PaperPlaneTilt,
-  Stop
+  Stop,
+  PencilSimple,
+  Check,
+  X
 } from "@phosphor-icons/react";
 
 // List of tools that require human confirmation
@@ -37,6 +40,9 @@ export default function Chat() {
   });
   const [showDebug, setShowDebug] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState("auto");
+  const [agentName, setAgentName] = useState("MindGuard");
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("MindGuard");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -68,8 +74,18 @@ export default function Chat() {
   };
 
   const agent = useAgent({
-    agent: "mindguard"
+    agent: "mindguard",
+    onStateUpdate: (newState: any) => {
+      // Sync agent name from state
+      if (newState?.preferences?.agentName) {
+        setAgentName(newState.preferences.agentName);
+        setEditNameValue(newState.preferences.agentName);
+      }
+    }
   });
+
+  // State will sync automatically via onStateUpdate when agent connects
+  // The agent name will be loaded from database/state when first message is sent
 
   const [agentInput, setAgentInput] = useState("");
   const handleAgentInputChange = (
@@ -143,6 +159,55 @@ export default function Chat() {
     )
   );
 
+  const handleUpdateAgentName = async () => {
+    const trimmedName = editNameValue.trim();
+    if (!trimmedName) {
+      alert("Agent name cannot be empty");
+      setEditNameValue(agentName);
+      setIsEditingName(false);
+      return;
+    }
+
+    if (trimmedName.length > 50) {
+      alert("Agent name must be 50 characters or less");
+      setEditNameValue(agentName);
+      setIsEditingName(false);
+      return;
+    }
+
+    // Store original name for potential rollback
+    const originalName = agentName;
+
+    try {
+      // Update state immediately for instant UI feedback
+      setAgentName(trimmedName);
+      setIsEditingName(false);
+
+      // Call the API endpoint to update the name in the backend
+      const response = await fetch("/api/update-agent-name", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ name: trimmedName })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string };
+        throw new Error(errorData.error || "Failed to update agent name");
+      }
+
+      // State will sync automatically via onStateUpdate callback
+      // But we've already updated it locally for instant feedback
+    } catch (error) {
+      console.error("Error updating agent name:", error);
+      // Revert on error
+      setAgentName(originalName);
+      setEditNameValue(originalName);
+      alert(error instanceof Error ? error.message : "Failed to update agent name");
+    }
+  };
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
@@ -171,7 +236,63 @@ export default function Chat() {
           </div>
 
           <div className="flex-1">
-            <h2 className="font-semibold text-base">MindGuard</h2>
+            {isEditingName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={editNameValue}
+                  onChange={(e) => setEditNameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleUpdateAgentName();
+                    } else if (e.key === "Escape") {
+                      setEditNameValue(agentName);
+                      setIsEditingName(false);
+                    }
+                  }}
+                  className="bg-transparent border border-[#F48120] rounded px-2 py-1 text-sm font-semibold text-[#F48120] focus:outline-none focus:ring-2 focus:ring-[#F48120]/50"
+                  autoFocus
+                  maxLength={50}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  shape="square"
+                  className="h-6 w-6 p-0"
+                  onClick={handleUpdateAgentName}
+                  aria-label="Save name"
+                >
+                  <Check size={14} className="text-green-600" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  shape="square"
+                  className="h-6 w-6 p-0"
+                  onClick={() => {
+                    setEditNameValue(agentName);
+                    setIsEditingName(false);
+                  }}
+                  aria-label="Cancel"
+                >
+                  <X size={14} className="text-red-600" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-base">{agentName}</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  shape="square"
+                  className="h-6 w-6 p-0 opacity-60 hover:opacity-100"
+                  onClick={() => setIsEditingName(true)}
+                  aria-label="Edit agent name"
+                >
+                  <PencilSimple size={14} />
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2 mr-2">
@@ -270,7 +391,7 @@ export default function Chat() {
                   >
                     {showAvatar && !isUser && (
                       <p className="text-sm font-medium text-[#F48120] px-1">
-                        MindGuard
+                        {agentName}
                       </p>
                     )}
 

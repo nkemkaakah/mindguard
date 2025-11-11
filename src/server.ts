@@ -44,6 +44,7 @@ interface MindGuardState {
   preferences: {
     checkInTime: string; // e.g., "09:00"
     timezone: string;
+    agentName: string; // User-customizable agent name
   };
 }
 
@@ -74,9 +75,41 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
           user_id TEXT PRIMARY KEY,
           check_in_time TEXT,
           timezone TEXT,
+          agent_name TEXT,
           updated_at TEXT
         )
       `;
+
+      // Migration: Add agent_name column if it doesn't exist (for existing databases)
+      // Check if column exists by querying table info
+      try {
+        const tableInfo = await this.sql<{ name: string }>`
+          PRAGMA table_info(user_preferences)
+        `;
+        
+        const hasAgentNameColumn = tableInfo.some(col => col.name === "agent_name");
+        
+        if (!hasAgentNameColumn) {
+          // Column doesn't exist, add it
+          await this.sql`
+            ALTER TABLE user_preferences ADD COLUMN agent_name TEXT
+          `;
+        }
+      } catch (error) {
+        // If PRAGMA fails or column check fails, try to add the column anyway
+        // This handles edge cases where the table structure might be different
+        try {
+          await this.sql`
+            ALTER TABLE user_preferences ADD COLUMN agent_name TEXT
+          `;
+        } catch (alterError) {
+          // Column likely already exists, which is fine
+          // Only log if it's not a "duplicate column" error
+          if (!(alterError instanceof Error && alterError.message.includes("duplicate column"))) {
+            console.error("Error adding agent_name column:", alterError);
+          }
+        }
+      }
     } catch (error) {
       console.error("Error initializing database:", error);
     }
@@ -99,6 +132,7 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
 
     // Load recent check-in history for context
     const recentCheckIns = await this.getCheckInHistory(5);
+    const agentName = await this.getAgentName();
     const checkInContext = recentCheckIns.length > 0
       ? `\nRecent check-in history:\n${recentCheckIns.map(ci => 
           `- ${ci.date}: ${ci.emotional_tone} - ${ci.summary}`
@@ -130,7 +164,7 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
           });
 
           const result = streamText({
-            system: `You are MindGuard, a compassionate AI wellness companion. Your role is to:
+            system: `You are ${agentName}, a compassionate AI wellness companion. Your role is to:
 - Check in with users daily about their mental well-being
 - Analyze the emotional tone of their messages (positive, neutral, or negative)
 - Provide gentle, supportive responses
@@ -298,7 +332,8 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         dailyCheckIns: updatedCheckIns,
         preferences: this.state?.preferences || {
           checkInTime: "09:00",
-          timezone: "UTC"
+          timezone: "UTC",
+          agentName: "MindGuard"
         }
       });
     } catch (error) {
@@ -390,6 +425,123 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       return null;
     }
   }
+
+  /**
+   * Get agent name from preferences
+   */
+  async getAgentName(): Promise<string> {
+    try {
+      // First check state
+      if (this.state?.preferences?.agentName) {
+        return this.state.preferences.agentName;
+      }
+
+      // If not in state, check database
+      const userId = this.state?.userId || "default";
+      try {
+        const result = await this.sql<{ agent_name: string }>`
+          SELECT agent_name FROM user_preferences 
+          WHERE user_id = ${userId} 
+          LIMIT 1
+        `;
+
+        if (result && result.length > 0 && result[0].agent_name) {
+          return result[0].agent_name;
+        }
+      } catch (error) {
+        // Column might not exist yet, fall through to default
+        console.error("Error querying agent_name:", error);
+      }
+
+      // Default name
+      return "MindGuard";
+    } catch (error) {
+      console.error("Error getting agent name:", error);
+      return "MindGuard";
+    }
+  }
+
+  /**
+   * Update agent name in database and state
+   */
+  async updateAgentName(newName: string): Promise<void> {
+    try {
+      // Validate name
+      if (!newName || newName.trim().length === 0) {
+        throw new Error("Agent name cannot be empty");
+      }
+
+      if (newName.length > 50) {
+        throw new Error("Agent name must be 50 characters or less");
+      }
+
+      const userId = this.state?.userId || "default";
+      const trimmedName = newName.trim();
+
+      // Update database
+      await this.sql`
+        INSERT INTO user_preferences (user_id, agent_name, updated_at)
+        VALUES (${userId}, ${trimmedName}, ${new Date().toISOString()})
+        ON CONFLICT(user_id) DO UPDATE SET
+          agent_name = ${trimmedName},
+          updated_at = ${new Date().toISOString()}
+      `;
+
+      // Update state
+      await this.setState({
+        ...this.state,
+        preferences: {
+          ...(this.state?.preferences || {
+            checkInTime: "09:00",
+            timezone: "UTC",
+            agentName: "MindGuard"
+          }),
+          agentName: trimmedName
+        }
+      });
+    } catch (error) {
+      console.error("Error updating agent name:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle HTTP requests (for API endpoints)
+   */
+  async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+
+    // Handle internal update-name request
+    // Path could be /internal/update-name or /agents/mindguard/default/internal/update-name
+    if ((pathname === "/internal/update-name" || pathname.endsWith("/internal/update-name")) && request.method === "POST") {
+      try {
+        await this.initializeDatabase();
+        const body = await request.json() as { name?: string };
+        const { name } = body;
+
+        if (!name || typeof name !== "string") {
+          return Response.json(
+            { error: "Invalid name provided" },
+            { status: 400 }
+          );
+        }
+
+        await this.updateAgentName(name);
+        return Response.json({ success: true, name });
+      } catch (error) {
+        console.error("Error in onRequest update-name:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to update agent name" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // For all other requests, let the parent class handle it
+    // AIChatAgent doesn't override onRequest, so return 404 for unmatched routes
+    return new Response("Not found", { status: 404 });
+  }
 }
 
 /**
@@ -405,6 +557,50 @@ export default {
         success: hasOpenAIKey
       });
     }
+
+    // Handle agent name update endpoint
+    if (url.pathname === "/api/update-agent-name" && request.method === "POST") {
+      try {
+        const body = await request.json() as { name?: string; agentName?: string };
+        const newName = body.name || body.agentName;
+
+        if (!newName || typeof newName !== "string") {
+          return Response.json(
+            { error: "Invalid name provided" },
+            { status: 400 }
+          );
+        }
+
+        // Create a properly formatted request that routeAgentRequest can handle
+        // Pattern: /agents/:agent/:name/path
+        const agentRequestUrl = new URL("/agents/mindguard/default/internal/update-name", request.url);
+        const agentRequest = new Request(agentRequestUrl.toString(), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ name: newName })
+        });
+        
+        // Route the request through routeAgentRequest to get proper agent instance
+        const response = await routeAgentRequest(agentRequest, env);
+        if (response) {
+          return response;
+        }
+        
+        return Response.json(
+          { error: "Failed to route request to agent" },
+          { status: 500 }
+        );
+      } catch (error) {
+        console.error("Error updating agent name:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to update agent name" },
+          { status: 500 }
+        );
+      }
+    }
+
     if (!process.env.OPENAI_API_KEY) {
       console.error(
         "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
