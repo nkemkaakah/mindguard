@@ -31,6 +31,15 @@
 			"new_sqlite_classes": [
 				"MindGuard"
 			]
+		},
+		{
+			"tag": "v2",
+			"renamed_classes": [
+				{
+					"from": "Chat",
+					"to": "MindGuard"
+				}
+			]
 		}
 	],
 	"observability": {

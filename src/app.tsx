@@ -12,6 +12,7 @@ import { Card } from "@/components/card/Card";
 import { Textarea } from "@/components/textarea/Textarea";
 import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { ToolInvocationCard } from "@/components/tool-invocation-card/ToolInvocationCard";
+import { DropdownMenu } from "@/components/dropdown/DropdownMenu";
 
 // Icon imports
 import {
@@ -25,7 +26,8 @@ import {
   X,
   Trash,
   Microphone,
-  Paperclip
+  Paperclip,
+  CaretDown
 } from "@phosphor-icons/react";
 
 // List of tools that require human confirmation
@@ -43,6 +45,7 @@ export default function Chat() {
   const [agentName, setAgentName] = useState("MindGuard");
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("MindGuard");
+  const [modelProvider, setModelProvider] = useState<"openai" | "workers-ai">("openai");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -80,6 +83,10 @@ export default function Chat() {
       if (newState?.preferences?.agentName) {
         setAgentName(newState.preferences.agentName);
         setEditNameValue(newState.preferences.agentName);
+      }
+      // Sync model provider from state
+      if (newState?.preferences?.modelProvider) {
+        setModelProvider(newState.preferences.modelProvider);
       }
     }
   });
@@ -215,6 +222,37 @@ export default function Chat() {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  const handleUpdateModelProvider = async (provider: "openai" | "workers-ai") => {
+    // Store original provider for potential rollback
+    const originalProvider = modelProvider;
+
+    try {
+      // Update state immediately for instant UI feedback
+      setModelProvider(provider);
+
+      // Call the API endpoint to update the provider in the backend
+      const response = await fetch("/api/update-model-provider", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ provider })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json() as { error?: string };
+        throw new Error(errorData.error || "Failed to update model provider");
+      }
+
+      // State will sync automatically via onStateUpdate callback
+    } catch (error) {
+      console.error("Error updating model provider:", error);
+      // Revert on error
+      setModelProvider(originalProvider);
+      alert(error instanceof Error ? error.message : "Failed to update model provider");
+    }
+  };
+
   const handleDeleteChat = () => {
     const confirmed = window.confirm(
       "Are you sure you want to delete all chat messages? This will permanently remove all conversation history and cannot be undone."
@@ -241,7 +279,7 @@ export default function Chat() {
       
       <div className="h-[100vh] w-full max-w-2xl flex flex-col bg-white dark:bg-neutral-900 shadow-2xl relative">
         {/* Modern Header */}
-        <div className="px-6 py-4 bg-neutral-800 dark:bg-neutral-900 border-b border-neutral-700 dark:border-neutral-800 sticky top-0 z-20">
+        <div className="px-6 py-4 bg-neutral-800 dark:bg-neutral-900 border-b border-neutral-700 dark:border-neutral-800 sticky top-0 ">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1">
               {isEditingName ? (
@@ -308,6 +346,31 @@ export default function Chat() {
                         >
                           <PencilSimple size={12} />
                         </Button>
+                        <DropdownMenu
+                          align="start"
+                          side="bottom"
+                          MenuItems={[
+                            {
+                              type: "button",
+                              label: modelProvider === "openai" ? "✓ OpenAI" : "OpenAI",
+                              onClick: () => handleUpdateModelProvider("openai"),
+                              checked: modelProvider === "openai"
+                            },
+                            {
+                              type: "button",
+                              label: modelProvider === "workers-ai" ? "✓ Workers AI" : "Workers AI",
+                              onClick: () => handleUpdateModelProvider("workers-ai"),
+                              checked: modelProvider === "workers-ai"
+                            }
+                          ]}
+                        >
+                          <div className="flex items-center gap-1 text-neutral-300 hover:text-white z-20 cursor-pointer">
+                            <span className="text-[10px] font-medium uppercase">
+                              {modelProvider === "openai" ? "GPT-4" : "Llama 3.3"}
+                            </span>
+                            <CaretDown size={10} weight="bold" />
+                          </div>
+                        </DropdownMenu>
                       </div>
                       {/* <p className="text-xs text-neutral-400">Last seen {getLastSeenTime()}</p> */}
                     </div>

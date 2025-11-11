@@ -81,7 +81,7 @@ const DropdownMenu = ({
       id={id}
       className={cn(
         children
-          ? "radix-state-open:!text-neutral-950 dark:radix-state-open:!text-white text-neutral-500 focus-visible:opacity-100 dark:text-neutral-400"
+          ? "radix-state-open:!text-neutral-950 dark:radix-state-open:!text-white text-neutral-500 focus-visible:opacity-100 dark:text-neutral-400 z-100 cursor-pointer"
           : buttonVariants(
               buttonProps ?? {
                 variant: "ghost",
@@ -89,7 +89,7 @@ const DropdownMenu = ({
                 // shape: 'square',
                 // interaction: 'none',
                 class:
-                  "radix-state-open:text-neutral-950 dark:radix-state-open:text-white focus-visible:opacity-100"
+                  "radix-state-open:text-neutral-950 dark:radix-state-open:text-white focus-visible:opacity-100 cursor-pointer"
               }
             ),
         className
@@ -144,7 +144,7 @@ const DropdownMenu = ({
               <DropdownMenuPrimitive.Item asChild key={index}>
                 {item.type === "link" ? (
                   <a
-                    className="radix-highlighted:bg-neutral-100 radix-highlighted:text-neutral-950 dark:radix-highlighted:bg-neutral-800 dark:radix-highlighted:text-white flex w-full items-center justify-between gap-5 rounded-md p-2.5 text-neutral-700 focus:outline-none dark:text-neutral-300"
+                    className="radix-highlighted:bg-neutral-100 radix-highlighted:text-neutral-950 dark:radix-highlighted:bg-neutral-800 dark:radix-highlighted:text-white flex w-full items-center justify-between gap-5 rounded-md p-2.5 text-neutral-700 focus:outline-none dark:text-neutral-300 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors duration-200 ease-in-out"
                     href={item.href || ""}
                     target={item.hrefExternal ? "_blank" : undefined}
                   >
@@ -162,9 +162,9 @@ const DropdownMenu = ({
                     type="button"
                     onClick={item.onClick}
                     className={cn(
-                      "radix-highlighted:bg-neutral-100 radix-highlighted:text-neutral-950 dark:radix-highlighted:bg-neutral-800 dark:radix-highlighted:text-white flex w-full items-center justify-between gap-5 rounded-md p-2.5 text-neutral-700 focus:outline-none dark:text-neutral-300",
+                      "radix-highlighted:bg-neutral-100 radix-highlighted:text-neutral-950 dark:radix-highlighted:bg-neutral-800 dark:radix-highlighted:text-white flex w-full items-center justify-between gap-5 rounded-md p-2.5 text-neutral-700 focus:outline-none dark:text-neutral-300 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors duration-200 ease-in-out",
                       {
-                        "radix-highlighted:bg-red-50 radix-highlighted:text-red-600 dark:radix-highlighted:bg-red-500/10 dark:radix-highlighted:text-red-400 text-red-500 dark:text-red-400/90":
+                        "radix-highlighted:bg-red-50 radix-highlighted:text-red-600 dark:radix-highlighted:bg-red-500/10 dark:radix-highlighted:text-red-400 text-red-500 dark:text-red-400/90 hover:bg-red-50 dark:hover:bg-red-500/10":
                           item.destructiveAction
                       }
                     )}

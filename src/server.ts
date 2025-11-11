@@ -14,10 +14,11 @@ import {
   type ToolSet
 } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { createWorkersAI } from "workers-ai-provider";
 import { processToolCalls, cleanupMessages } from "./utils";
 import { tools, executions } from "./tools";
 
-const model = openai("gpt-4o-2024-11-20");
+// Model will be selected dynamically based on user preference
 
 /**
  * Environment interface for Cloudflare Worker
@@ -26,6 +27,7 @@ const model = openai("gpt-4o-2024-11-20");
 interface Env {
   mindguard: AgentNamespace<Agent>;
   OPENAI_API_KEY?: string;
+  AI?: any; // Workers AI binding (from wrangler.jsonc)
 }
 
 /**
@@ -45,6 +47,7 @@ interface MindGuardState {
     checkInTime: string; // e.g., "09:00"
     timezone: string;
     agentName: string; // User-customizable agent name
+    modelProvider: "openai" | "workers-ai"; // AI model provider preference
   };
 }
 
@@ -76,37 +79,49 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
           check_in_time TEXT,
           timezone TEXT,
           agent_name TEXT,
+          model_provider TEXT,
           updated_at TEXT
         )
       `;
 
-      // Migration: Add agent_name column if it doesn't exist (for existing databases)
-      // Check if column exists by querying table info
+      // Migration: Add agent_name and model_provider columns if they don't exist
       try {
         const tableInfo = await this.sql<{ name: string }>`
           PRAGMA table_info(user_preferences)
         `;
         
         const hasAgentNameColumn = tableInfo.some(col => col.name === "agent_name");
+        const hasModelProviderColumn = tableInfo.some(col => col.name === "model_provider");
         
         if (!hasAgentNameColumn) {
-          // Column doesn't exist, add it
           await this.sql`
             ALTER TABLE user_preferences ADD COLUMN agent_name TEXT
           `;
         }
+        
+        if (!hasModelProviderColumn) {
+          await this.sql`
+            ALTER TABLE user_preferences ADD COLUMN model_provider TEXT DEFAULT 'openai'
+          `;
+        }
       } catch (error) {
-        // If PRAGMA fails or column check fails, try to add the column anyway
-        // This handles edge cases where the table structure might be different
+        // If PRAGMA fails, try to add columns anyway
         try {
           await this.sql`
             ALTER TABLE user_preferences ADD COLUMN agent_name TEXT
           `;
         } catch (alterError) {
-          // Column likely already exists, which is fine
-          // Only log if it's not a "duplicate column" error
           if (!(alterError instanceof Error && alterError.message.includes("duplicate column"))) {
             console.error("Error adding agent_name column:", alterError);
+          }
+        }
+        try {
+          await this.sql`
+            ALTER TABLE user_preferences ADD COLUMN model_provider TEXT DEFAULT 'openai'
+          `;
+        } catch (alterError) {
+          if (!(alterError instanceof Error && alterError.message.includes("duplicate column"))) {
+            console.error("Error adding model_provider column:", alterError);
           }
         }
       }
@@ -114,6 +129,34 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
       console.error("Error initializing database:", error);
     }
   }
+
+  /**
+   * Get the AI model based on user preference
+   */
+  getModel() {
+    const modelProvider = this.state?.preferences?.modelProvider || "openai";
+    
+    if (modelProvider === "workers-ai") {
+      if (!this.env.AI) {
+        console.warn("Workers AI binding not available, falling back to OpenAI");
+        return openai("gpt-4o-2024-11-20");
+      }
+      
+      try {
+        const workersAI = createWorkersAI({ binding: this.env.AI });
+        // Use @cf/meta/llama-3.3-70b-instruct-fp8-fast for Llama 3.3 (faster fp8 quantized version)
+        // Note: Workers AI requires remote: true in wrangler.jsonc and may not work in local dev
+        return workersAI("@cf/meta/llama-3.3-70b-instruct-fp8-fast" as any);
+      } catch (error) {
+        console.error("Error initializing Workers AI, falling back to OpenAI:", error);
+        return openai("gpt-4o-2024-11-20");
+      }
+    }
+    
+    // Default to OpenAI
+    return openai("gpt-4o-2024-11-20");
+  }
+
   /**
    * Handles incoming chat messages and manages the response stream
    */
@@ -129,6 +172,10 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
       ...tools,
       ...this.mcp.getAITools()
     };
+
+    // Check if we're using Workers AI - it has limited tool calling support
+    const modelProvider = this.state?.preferences?.modelProvider || "openai";
+    const isWorkersAI = modelProvider === "workers-ai";
 
     // Load recent check-in history for context
     const recentCheckIns = await this.getCheckInHistory(5);
@@ -172,8 +219,36 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
             executions
           });
 
-          const result = streamText({
-            system: `You are ${agentName}, a compassionate AI wellness companion. Your role is to:
+          // Get the model (may fallback to OpenAI if Workers AI fails)
+          const model = this.getModel();
+          
+          // Workers AI (Llama 3.3) has limited tool calling support through ai-sdk
+          // So we conditionally disable tools and use a different prompt approach
+          const toolsToUse = isWorkersAI ? {} : allTools;
+          
+          // Enhanced system prompt for Workers AI that doesn't rely on tools
+          const systemPrompt = isWorkersAI
+            ? `You are ${agentName}, a compassionate AI wellness companion. Your role is to:
+- Check in with users daily about their mental well-being
+- Analyze the emotional tone of their messages (positive, neutral, or negative) and respond naturally
+- Provide gentle, supportive responses in natural conversation
+- Recommend appropriate mindfulness techniques and coping strategies directly in your responses
+- Be empathetic, non-judgmental, and supportive
+
+IMPORTANT: You are NOT a replacement for professional mental health care. If a user expresses serious distress, encourage them to seek professional help.
+
+When analyzing emotional tone, consider:
+- Word choice and language patterns
+- Overall sentiment
+- Intensity of emotions expressed
+- Context of the conversation
+
+When providing recommendations, match them to the user's emotional state and be specific and actionable. Provide recommendations naturally in your conversation - don't use function calls or JSON.
+
+${checkInContext}
+
+Respond naturally and conversationally. If the user shares how they're feeling, acknowledge their emotions and provide appropriate support and recommendations directly in your response.`
+            : `You are ${agentName}, a compassionate AI wellness companion. Your role is to:
 - Check in with users daily about their mental well-being
 - Analyze the emotional tone of their messages (positive, neutral, or negative)
 - Provide gentle, supportive responses
@@ -195,14 +270,15 @@ ${checkInContext}
 
 ${getSchedulePrompt({ date: new Date() })}
 
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
+If the user asks to schedule a task, use the schedule tool to schedule the task.`;
+          
+          const result = streamText({
+            system: systemPrompt,
 
             messages: convertToModelMessages(processedMessages),
             model,
-            tools: allTools,
-            onFinish: onFinish as unknown as StreamTextOnFinishCallback<
-              typeof allTools
-            >,
+            tools: toolsToUse,
+            onFinish: onFinish as any,
             stopWhen: stepCountIs(10)
           });
 
@@ -380,7 +456,8 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         preferences: this.state?.preferences || {
           checkInTime: "09:00",
           timezone: "UTC",
-          agentName: "MindGuard"
+          agentName: "MindGuard",
+          modelProvider: "openai"
         }
       });
     } catch (error) {
@@ -474,6 +551,78 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
   }
 
   /**
+   * Get model provider preference
+   */
+  async getModelProvider(): Promise<"openai" | "workers-ai"> {
+    try {
+      // First check state
+      if (this.state?.preferences?.modelProvider) {
+        return this.state.preferences.modelProvider;
+      }
+
+      // If not in state, check database
+      const userId = this.state?.userId || "default";
+      try {
+        const result = await this.sql<{ model_provider: string }>`
+          SELECT model_provider FROM user_preferences 
+          WHERE user_id = ${userId} 
+          LIMIT 1
+        `;
+
+        if (result && result.length > 0 && result[0].model_provider) {
+          const provider = result[0].model_provider as "openai" | "workers-ai";
+          if (provider === "openai" || provider === "workers-ai") {
+            return provider;
+          }
+        }
+      } catch (error) {
+        // Column might not exist yet, fall through to default
+        console.error("Error querying model_provider:", error);
+      }
+
+      // Default to OpenAI
+      return "openai";
+    } catch (error) {
+      console.error("Error getting model provider:", error);
+      return "openai";
+    }
+  }
+
+  /**
+   * Update model provider preference
+   */
+  async updateModelProvider(provider: "openai" | "workers-ai"): Promise<void> {
+    try {
+      const userId = this.state?.userId || "default";
+      const now = new Date().toISOString();
+
+      // Update database
+      await this.sql`
+        INSERT INTO user_preferences (user_id, model_provider, updated_at)
+        VALUES (${userId}, ${provider}, ${now})
+        ON CONFLICT(user_id) DO UPDATE SET
+          model_provider = ${provider},
+          updated_at = ${now}
+      `;
+
+      // Update state
+      this.setState({
+        ...this.state,
+        preferences: {
+          ...this.state?.preferences,
+          modelProvider: provider,
+          checkInTime: this.state?.preferences?.checkInTime || "09:00",
+          timezone: this.state?.preferences?.timezone || "UTC",
+          agentName: this.state?.preferences?.agentName || "MindGuard"
+        }
+      });
+    } catch (error) {
+      console.error("Error updating model provider:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Get agent name from preferences
    */
   async getAgentName(): Promise<string> {
@@ -541,7 +690,8 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
           ...(this.state?.preferences || {
             checkInTime: "09:00",
             timezone: "UTC",
-            agentName: "MindGuard"
+            agentName: "MindGuard",
+            modelProvider: "openai"
           }),
           agentName: trimmedName
         }
@@ -580,6 +730,31 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         console.error("Error in onRequest update-name:", error);
         return Response.json(
           { error: error instanceof Error ? error.message : "Failed to update agent name" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Handle internal update-model-provider request
+    if ((pathname === "/internal/update-model-provider" || pathname.endsWith("/internal/update-model-provider")) && request.method === "POST") {
+      try {
+        await this.initializeDatabase();
+        const body = await request.json() as { provider?: string };
+        const { provider } = body;
+
+        if (!provider || (provider !== "openai" && provider !== "workers-ai")) {
+          return Response.json(
+            { error: "Invalid provider. Must be 'openai' or 'workers-ai'" },
+            { status: 400 }
+          );
+        }
+
+        await this.updateModelProvider(provider as "openai" | "workers-ai");
+        return Response.json({ success: true, provider });
+      } catch (error) {
+        console.error("Error in onRequest update-model-provider:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to update model provider" },
           { status: 500 }
         );
       }
@@ -643,6 +818,48 @@ export default {
         console.error("Error updating agent name:", error);
         return Response.json(
           { error: error instanceof Error ? error.message : "Failed to update agent name" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Handle model provider update endpoint
+    if (url.pathname === "/api/update-model-provider" && request.method === "POST") {
+      try {
+        const body = await request.json() as { provider?: string };
+        const provider = body.provider;
+
+        if (!provider || (provider !== "openai" && provider !== "workers-ai")) {
+          return Response.json(
+            { error: "Invalid provider. Must be 'openai' or 'workers-ai'" },
+            { status: 400 }
+          );
+        }
+
+        // Create a properly formatted request that routeAgentRequest can handle
+        const agentRequestUrl = new URL("/agents/mindguard/default/internal/update-model-provider", request.url);
+        const agentRequest = new Request(agentRequestUrl.toString(), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ provider })
+        });
+        
+        // Route the request through routeAgentRequest to get proper agent instance
+        const response = await routeAgentRequest(agentRequest, env);
+        if (response) {
+          return response;
+        }
+        
+        return Response.json(
+          { error: "Failed to route request to agent" },
+          { status: 500 }
+        );
+      } catch (error) {
+        console.error("Error updating model provider:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to update model provider" },
           { status: 500 }
         );
       }
