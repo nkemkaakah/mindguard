@@ -234,9 +234,24 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         // Wait a brief moment for connection to be fully established
         await new Promise(resolve => setTimeout(resolve, 100));
         
+        // Ensure all messages have timestamps before syncing
+        // Preserve existing timestamps, don't overwrite them
+        const messagesWithTimestamps = this.messages.map(msg => {
+          if (!msg.metadata || !(msg.metadata as { createdAt?: string }).createdAt) {
+            return {
+              ...msg,
+              metadata: {
+                ...(msg.metadata || {}),
+                createdAt: new Date().toISOString()
+              }
+            };
+          }
+          return msg;
+        });
+        
         // Call saveMessages to sync messages to the client
         // onChatMessage will be called but will exit early if last message is from assistant
-        await this.saveMessages(this.messages);
+        await this.saveMessages(messagesWithTimestamps);
       } catch (error) {
         console.error("Error syncing messages on connect:", error);
       }

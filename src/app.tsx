@@ -114,11 +114,14 @@ export default function Chat() {
     setAgentInput("");
 
     try {
-      // Send message to agent
+      // Send message to agent with timestamp
       await sendMessage(
         {
           role: "user",
-          parts: [{ type: "text", text: message }]
+          parts: [{ type: "text", text: message }],
+          metadata: {
+            createdAt: new Date().toISOString()
+          }
         },
         {
           body: extraData
