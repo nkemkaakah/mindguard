@@ -25,6 +25,7 @@ const AvatarComponent = ({
   toggled,
   username
 }: AvatarProps) => {
+  console.log("username", username);
   const firstInitial = username.charAt(0).toUpperCase();
 
   return (

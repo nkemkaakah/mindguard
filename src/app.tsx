@@ -9,7 +9,6 @@ import type { tools } from "./tools";
 // Component imports
 import { Button } from "@/components/button/Button";
 import { Card } from "@/components/card/Card";
-import { Avatar } from "@/components/avatar/Avatar";
 import { Toggle } from "@/components/toggle/Toggle";
 import { Textarea } from "@/components/textarea/Textarea";
 import { MemoizedMarkdown } from "@/components/memoized-markdown";
@@ -265,14 +264,14 @@ export default function Chat() {
                   className={`flex ${isUser ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`flex gap-2 max-w-[85%] ${
-                      isUser ? "flex-row-reverse" : "flex-row"
+                    className={`flex flex-col gap-1 max-w-[85%] ${
+                      isUser ? "items-end" : "items-start"
                     }`}
                   >
-                    {showAvatar && !isUser ? (
-                      <Avatar username={"AI"} />
-                    ) : (
-                      !isUser && <div className="w-8" />
+                    {showAvatar && !isUser && (
+                      <p className="text-sm font-medium text-[#F48120] px-1">
+                        MindGuard
+                      </p>
                     )}
 
                     <div>
