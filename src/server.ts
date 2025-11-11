@@ -1,4 +1,4 @@
-import { routeAgentRequest, type Schedule, type AgentNamespace, type Agent } from "agents";
+import { routeAgentRequest, type Schedule, type AgentNamespace, type Agent, type Connection } from "agents";
 
 import { getSchedulePrompt } from "agents/schedule";
 
@@ -155,6 +155,15 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
             return;
           }
 
+          // Prevent duplicate responses: if the last message is already from the assistant,
+          // don't process again (this happens when syncing messages on connection)
+          const lastMessage = cleanedMessages[cleanedMessages.length - 1];
+          if (lastMessage && lastMessage.role === "assistant") {
+            // Last message is already from assistant, conversation is complete
+            // Don't generate a new response - this is just message syncing
+            return;
+          }
+
           // Process any pending tool calls from previous messages
           const processedMessages = await processToolCalls({
             messages: cleanedMessages,
@@ -211,6 +220,29 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
 
     return createUIMessageStreamResponse({ stream });
   }
+
+  /**
+   * Handle WebSocket connection - sync existing messages to client
+   * We need to call saveMessages to sync messages, but onChatMessage will check
+   * if the last message is already from assistant to prevent duplicate responses
+   */
+  async onConnect(connection: Connection) {
+    // Sync existing messages to the newly connected client
+    // onChatMessage will check if last message is from assistant and skip processing
+    if (this.messages && this.messages.length > 0) {
+      try {
+        // Wait a brief moment for connection to be fully established
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Call saveMessages to sync messages to the client
+        // onChatMessage will be called but will exit early if last message is from assistant
+        await this.saveMessages(this.messages);
+      } catch (error) {
+        console.error("Error syncing messages on connect:", error);
+      }
+    }
+  }
+
   /**
    * Execute scheduled daily check-in
    */
