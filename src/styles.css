@@ -310,3 +310,19 @@
     transform: rotate(360deg) scale(0.9);
   }
 }
+
+/* Waveform animation for voice recording */
+@keyframes waveform {
+  0%, 100% {
+    transform: scaleY(0.4);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.animate-waveform {
+  animation: waveform 1s ease-in-out infinite;
+}

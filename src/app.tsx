@@ -6,6 +6,58 @@ import { useAgentChat } from "agents/ai-react";
 import type { UIMessage } from "@ai-sdk/react";
 import type { tools } from "./tools";
 
+// TypeScript definitions for Web Speech API
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+  message: string;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+  isFinal: boolean;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: {
+      new (): SpeechRecognition;
+    };
+    webkitSpeechRecognition: {
+      new (): SpeechRecognition;
+    };
+  }
+}
+
 // Component imports
 import { Button } from "@/components/button/Button";
 import { Card } from "@/components/card/Card";
@@ -47,6 +99,12 @@ export default function Chat() {
   const [editNameValue, setEditNameValue] = useState("MindGuard");
   const [modelProvider, setModelProvider] = useState<"openai" | "workers-ai">("openai");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognitionError, setRecognitionError] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const manuallyStoppedRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -75,6 +133,145 @@ export default function Chat() {
     const newTheme = theme === "dark" ? "light" : "dark";
     setTheme(newTheme);
   };
+
+  // Check if Speech Recognition is supported
+  const isSpeechRecognitionSupported = () => {
+    return (
+      typeof window !== "undefined" &&
+      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
+    );
+  };
+
+  // Initialize Speech Recognition
+  const initializeRecognition = useCallback(() => {
+    if (!isSpeechRecognitionSupported()) {
+      return null;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true; // Keep listening until manually stopped
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[event.results.length - 1][0].transcript;
+      setAgentInput((prev) => prev + (prev ? " " : "") + transcript);
+      setRecognitionError(null);
+      // Don't stop recording - keep listening for more speech
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("Speech recognition error:", event.error);
+      
+      // Only stop on critical errors, not on "no-speech" which is normal
+      if (event.error === "audio-capture" || event.error === "not-allowed" || event.error === "network") {
+        setIsRecording(false);
+        manuallyStoppedRef.current = false;
+        
+        let errorMessage = "Speech recognition failed. Please try again.";
+        if (event.error === "audio-capture") {
+          errorMessage = "Microphone not found. Please check your microphone.";
+        } else if (event.error === "not-allowed") {
+          errorMessage = "Microphone permission denied. Please allow microphone access.";
+        } else if (event.error === "network") {
+          errorMessage = "Network error. Please check your connection.";
+        }
+        
+        setRecognitionError(errorMessage);
+        // Clear error after 5 seconds
+        setTimeout(() => setRecognitionError(null), 5000);
+      }
+      // Ignore "no-speech" errors - they're normal when user pauses
+    };
+
+    recognition.onend = () => {
+      // Only update state if it wasn't manually stopped (manual stop already updated state)
+      if (!manuallyStoppedRef.current && isRecording) {
+        // Recognition ended unexpectedly, restart it if we're still supposed to be recording
+        if (recognitionRef.current && isRecording) {
+          try {
+            recognitionRef.current.start();
+          } catch (error) {
+            // If restart fails, stop recording
+            setIsRecording(false);
+            setRecognitionError("Recording stopped unexpectedly. Please try again.");
+            setTimeout(() => setRecognitionError(null), 5000);
+          }
+        }
+      } else {
+        manuallyStoppedRef.current = false; // Reset flag
+      }
+    };
+
+    return recognition;
+  }, []);
+
+  // Start voice recording
+  const handleStartRecording = useCallback(() => {
+    if (!isSpeechRecognitionSupported()) {
+      setRecognitionError("Voice input is not supported in your browser. Please use Chrome or Edge.");
+      setTimeout(() => setRecognitionError(null), 5000);
+      return;
+    }
+
+    // Reset manual stop flag
+    manuallyStoppedRef.current = false;
+    
+    // Create new recognition instance each time to ensure clean state
+    recognitionRef.current = initializeRecognition();
+
+    if (recognitionRef.current) {
+      try {
+        setRecognitionError(null);
+        setIsRecording(true);
+        recognitionRef.current.start();
+      } catch (error) {
+        console.error("Error starting recognition:", error);
+        setIsRecording(false);
+        setRecognitionError("Failed to start recording. Please try again.");
+        setTimeout(() => setRecognitionError(null), 5000);
+      }
+    }
+  }, [initializeRecognition, isRecording]);
+
+  // Stop voice recording
+  const handleStopRecording = useCallback(() => {
+    if (recognitionRef.current && isRecording) {
+      try {
+        manuallyStoppedRef.current = true; // Mark as manually stopped
+        recognitionRef.current.stop();
+        setIsRecording(false);
+      } catch (error) {
+        console.error("Error stopping recognition:", error);
+        manuallyStoppedRef.current = true;
+        setIsRecording(false);
+      }
+    }
+  }, [isRecording]);
+
+  // Start recording (microphone button only starts, doesn't stop)
+  const handleStartRecordingClick = useCallback(() => {
+    if (!isRecording) {
+      handleStartRecording();
+    }
+  }, [isRecording, handleStartRecording]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (error) {
+          // Ignore errors on cleanup
+        }
+      }
+    };
+  }, []);
 
   const agent = useAgent({
     agent: "mindguard",
@@ -603,64 +800,121 @@ export default function Chat() {
                 variant="ghost"
                 size="md"
                 shape="square"
-                className="h-9 w-9 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                className={`h-9 w-9 transition-colors ${
+                  isRecording
+                    ? "text-red-500 hover:text-red-600 animate-pulse"
+                    : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                } ${!isSpeechRecognitionSupported() ? "opacity-50 cursor-not-allowed" : ""} ${isRecording ? "cursor-not-allowed" : ""}`}
                 type="button"
-                aria-label="Voice message"
+                aria-label="Start voice recording"
+                onClick={handleStartRecordingClick}
+                disabled={!isSpeechRecognitionSupported() || isRecording}
+                title={
+                  !isSpeechRecognitionSupported()
+                    ? "Voice input not supported in this browser"
+                    : isRecording
+                      ? ""
+                      : ""
+                }
               >
-                <Microphone size={20} />
+                <Microphone size={20} weight={isRecording ? "fill" : "regular"} />
               </Button>
             </div>
             <div className="flex-1 relative">
-              <Textarea
-                disabled={pendingToolCallConfirmation}
-                placeholder={
-                  pendingToolCallConfirmation
-                    ? "Please respond to the tool confirmation above..."
-                    : "Type a message..."
-                }
-                className="w-full border border-neutral-300 dark:border-neutral-700 px-4 py-3 pr-12 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 text-sm min-h-[44px] max-h-[120px] overflow-hidden resize-none"
-                value={agentInput}
-                onChange={(e) => {
-                  handleAgentInputChange(e);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-                  setTextareaHeight(`${Math.min(e.target.scrollHeight, 120)}px`);
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.nativeEvent.isComposing
-                  ) {
-                    e.preventDefault();
-                    handleAgentSubmit(e as unknown as React.FormEvent);
-                    setTextareaHeight("auto");
-                  }
-                }}
-                rows={1}
-                style={{ height: textareaHeight }}
-              />
-              <div className="absolute bottom-2 right-2">
-                {status === "submitted" || status === "streaming" ? (
-                  <button
-                    type="button"
-                    onClick={stop}
-                    className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-                    aria-label="Stop generation"
-                  >
-                    <Stop size={16} />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:from-blue-600 hover:to-cyan-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 shadow-md"
-                    disabled={pendingToolCallConfirmation || !agentInput.trim()}
-                    aria-label="Send message"
-                  >
-                    <PaperPlaneTilt size={16} weight="fill" />
-                  </button>
-                )}
-              </div>
+              {isRecording ? (
+                // Recording UI
+                <div className="w-full border border-red-300 dark:border-red-700 px-1 py-1 pr-12 rounded-2xl bg-red-50 dark:bg-red-950/20 text-neutral-900 dark:text-neutral-100 min-h-[44px] flex items-center justify-center">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-8 bg-red-500 rounded-full animate-waveform" style={{ animationDelay: "0s" }}></div>
+                      <div className="w-2 h-6 bg-red-500 rounded-full animate-waveform" style={{ animationDelay: "0.1s" }}></div>
+                      <div className="w-2 h-10 bg-red-500 rounded-full animate-waveform" style={{ animationDelay: "0.2s" }}></div>
+                      <div className="w-2 h-7 bg-red-500 rounded-full animate-waveform" style={{ animationDelay: "0.3s" }}></div>
+                      <div className="w-2 h-9 bg-red-500 rounded-full animate-waveform" style={{ animationDelay: "0.4s" }}></div>
+                    </div>
+                    <span className="text-sm font-medium text-red-600 dark:text-red-400">Recording...</span>
+                  </div>
+                  <div className="absolute bottom-2 right-2">
+                    <button
+                      type="button"
+                      onClick={handleStopRecording}
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 shadow-md"
+                      aria-label="Stop recording"
+                    >
+                      <Stop size={16} weight="fill" />
+                    </button>
+                  </div>
+                </div>
+              ) : recognitionError ? (
+                // Error state
+                <div className="w-full border border-red-300 dark:border-red-700 px-4 py-3 pr-12 rounded-2xl bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 min-h-[44px] flex items-center">
+                  <span className="text-sm">{recognitionError}</span>
+                  <div className="absolute bottom-2 right-2">
+                    <button
+                      type="button"
+                      onClick={() => setRecognitionError(null)}
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors"
+                      aria-label="Dismiss error"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // Normal input state
+                <>
+                  <Textarea
+                    disabled={pendingToolCallConfirmation}
+                    placeholder={
+                      pendingToolCallConfirmation
+                        ? "Please respond to the tool confirmation above..."
+                        : "Type a message..."
+                    }
+                    className="w-full border border-neutral-300 dark:border-neutral-700 px-4 py-3 pr-12 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 text-sm min-h-[44px] max-h-[120px] overflow-hidden resize-none"
+                    value={agentInput}
+                    onChange={(e) => {
+                      handleAgentInputChange(e);
+                      e.target.style.height = "auto";
+                      e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                      setTextareaHeight(`${Math.min(e.target.scrollHeight, 120)}px`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing
+                      ) {
+                        e.preventDefault();
+                        handleAgentSubmit(e as unknown as React.FormEvent);
+                        setTextareaHeight("auto");
+                      }
+                    }}
+                    rows={1}
+                    style={{ height: textareaHeight }}
+                  />
+                  <div className="absolute bottom-2 right-2">
+                    {status === "submitted" || status === "streaming" ? (
+                      <button
+                        type="button"
+                        onClick={stop}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
+                        aria-label="Stop generation"
+                      >
+                        <Stop size={16} />
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:from-blue-600 hover:to-cyan-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 shadow-md"
+                        disabled={pendingToolCallConfirmation || !agentInput.trim()}
+                        aria-label="Send message"
+                      >
+                        <PaperPlaneTilt size={16} weight="fill" />
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </form>
