@@ -28,9 +28,7 @@ import {
 
 // List of tools that require human confirmation
 // NOTE: this should match the tools that don't have execute functions in tools.ts
-const toolsRequiringConfirmation: (keyof typeof tools)[] = [
-  "getWeatherInformation"
-];
+const toolsRequiringConfirmation: (keyof typeof tools)[] = [];
 
 export default function Chat() {
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -71,7 +69,7 @@ export default function Chat() {
   };
 
   const agent = useAgent({
-    agent: "chat"
+    agent: "mindguard"
   });
 
   const [agentInput, setAgentInput] = useState("");
@@ -86,21 +84,36 @@ export default function Chat() {
     extraData: Record<string, unknown> = {}
   ) => {
     e.preventDefault();
-    if (!agentInput.trim()) return;
+    
+    // Input validation
+    const trimmedInput = agentInput.trim();
+    if (!trimmedInput) return;
+    
+    // Limit message length to prevent abuse
+    if (trimmedInput.length > 5000) {
+      alert("Message is too long. Please keep it under 5000 characters.");
+      return;
+    }
 
-    const message = agentInput;
+    const message = trimmedInput;
     setAgentInput("");
 
-    // Send message to agent
-    await sendMessage(
-      {
-        role: "user",
-        parts: [{ type: "text", text: message }]
-      },
-      {
-        body: extraData
-      }
-    );
+    try {
+      // Send message to agent
+      await sendMessage(
+        {
+          role: "user",
+          parts: [{ type: "text", text: message }]
+        },
+        {
+          body: extraData
+        }
+      );
+    } catch (error) {
+      console.error("Error sending message:", error);
+      // Optionally show user-friendly error message
+      setAgentInput(message); // Restore message on error
+    }
   };
 
   const {
@@ -159,7 +172,7 @@ export default function Chat() {
           </div>
 
           <div className="flex-1">
-            <h2 className="font-semibold text-base">AI Chat Agent</h2>
+            <h2 className="font-semibold text-base">MindGuard</h2>
           </div>
 
           <div className="flex items-center gap-2 mr-2">
@@ -201,21 +214,36 @@ export default function Chat() {
                   <div className="bg-[#F48120]/10 text-[#F48120] rounded-full p-3 inline-flex">
                     <Robot size={24} />
                   </div>
-                  <h3 className="font-semibold text-lg">Welcome to AI Chat</h3>
+                  <h3 className="font-semibold text-lg">Welcome to MindGuard</h3>
                   <p className="text-muted-foreground text-sm">
-                    Start a conversation with your AI assistant. Try asking
-                    about:
+                    Your AI wellness companion for daily check-ins and emotional support.
                   </p>
-                  <ul className="text-sm text-left space-y-2">
+                  <p className="text-muted-foreground text-xs">
+                    I'm here to help you track your mental well-being, analyze your emotional state, 
+                    and provide personalized mindfulness recommendations.
+                  </p>
+                  <ul className="text-sm text-left space-y-2 mt-4">
                     <li className="flex items-center gap-2">
                       <span className="text-[#F48120]">•</span>
-                      <span>Weather information for any city</span>
+                      <span>Share how you're feeling today</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <span className="text-[#F48120]">•</span>
-                      <span>Local time in different locations</span>
+                      <span>Get personalized mindfulness recommendations</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-[#F48120]">•</span>
+                      <span>View your check-in history</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="text-[#F48120]">•</span>
+                      <span>Schedule daily wellness check-ins</span>
                     </li>
                   </ul>
+                  <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-neutral-300 dark:border-neutral-700">
+                    <strong>Note:</strong> MindGuard is not a replacement for professional mental health care. 
+                    If you're experiencing a crisis, please seek immediate professional help.
+                  </p>
                 </div>
               </Card>
             </div>
