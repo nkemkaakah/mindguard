@@ -1,108 +1,176 @@
 import { useTooltip } from "@/providers/TooltipProvider";
 import { cn } from "@/lib/utils";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type TooltipProps = {
   children: React.ReactNode;
   className?: string;
   content: string;
   id?: number | string;
+  side?: "top" | "bottom" | "left" | "right";
+  sideOffset?: number;
 };
 
-export const Tooltip = ({ children, className, content, id }: TooltipProps) => {
+export const Tooltip = ({ 
+  children, 
+  className, 
+  content, 
+  id,
+  side = "top",
+  sideOffset = 8
+}: TooltipProps) => {
   const { activeTooltip, showTooltip, hideTooltip } = useTooltip();
-  const [positionX, setPositionX] = useState<"center" | "left" | "right">(
-    "center"
-  );
-  const [positionY, setPositionY] = useState<"top" | "bottom">("top");
-  const [isHoverAvailable, setIsHoverAvailable] = useState(false); // if hover state exists
-  const [isPointer, setIsPointer] = useState(false); // if user is using a pointer device
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [isHoverAvailable, setIsHoverAvailable] = useState(false);
+  const [isPointer, setIsPointer] = useState(false);
 
-  const tooltipRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    setIsHoverAvailable(window.matchMedia("(hover: hover)").matches); // check if hover state is available
+    setIsHoverAvailable(window.matchMedia("(hover: hover)").matches);
   }, []);
 
   const tooltipIdentifier = id ? id + content : content;
-  const tooltipId = `tooltip-${id || content.replace(/\s+/g, "-")}`; // used for ARIA
-
+  const tooltipId = `tooltip-${id || content.replace(/\s+/g, "-")}`;
   const isVisible = activeTooltip === tooltipIdentifier;
 
-  // detect collision once the tooltip is visible
+  // Calculate tooltip position based on trigger element
   useLayoutEffect(() => {
-    const detectCollision = () => {
-      const ref = tooltipRef.current;
+    if (!isVisible || !triggerRef.current) {
+      setPosition(null);
+      return;
+    }
 
-      if (ref) {
-        const tooltipRect = ref.getBoundingClientRect();
-        const { top, left, bottom, right } = tooltipRect;
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
+    const updatePosition = () => {
+      if (!triggerRef.current) return;
 
-        if (top <= 0) setPositionY("bottom");
-        if (left <= 0) setPositionX("left");
-        if (bottom >= viewportHeight) setPositionY("top");
-        if (right >= viewportWidth) setPositionX("right");
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+      const padding = 8;
+
+      // Get actual tooltip dimensions if available, otherwise estimate
+      const tooltipWidth = tooltipRef.current?.getBoundingClientRect().width || 200;
+      const tooltipHeight = tooltipRef.current?.getBoundingClientRect().height || 32;
+
+      let top = 0;
+      let left = 0;
+      let preferredSide = side;
+
+      // Calculate preferred position
+      if (preferredSide === "top") {
+        top = triggerRect.top + scrollY - tooltipHeight - sideOffset;
+        left = triggerRect.left + scrollX + triggerRect.width / 2 - tooltipWidth / 2;
+      } else if (preferredSide === "bottom") {
+        top = triggerRect.bottom + scrollY + sideOffset;
+        left = triggerRect.left + scrollX + triggerRect.width / 2 - tooltipWidth / 2;
+      } else if (preferredSide === "left") {
+        top = triggerRect.top + scrollY + triggerRect.height / 2 - tooltipHeight / 2;
+        left = triggerRect.left + scrollX - tooltipWidth - sideOffset;
+      } else {
+        top = triggerRect.top + scrollY + triggerRect.height / 2 - tooltipHeight / 2;
+        left = triggerRect.right + scrollX + sideOffset;
+      }
+
+      // Check horizontal boundaries
+      if (left < padding) {
+        left = padding;
+      } else if (left + tooltipWidth > viewportWidth - padding) {
+        left = viewportWidth - tooltipWidth - padding;
+      }
+
+      // Check vertical boundaries and flip if needed
+      if (preferredSide === "top" && top < scrollY + padding) {
+        // Not enough space on top, flip to bottom
+        top = triggerRect.bottom + scrollY + sideOffset;
+      } else if (preferredSide === "bottom" && top + tooltipHeight > scrollY + viewportHeight - padding) {
+        // Not enough space on bottom, flip to top
+        top = triggerRect.top + scrollY - tooltipHeight - sideOffset;
+      }
+
+      // Ensure tooltip stays within viewport vertically
+      if (top < scrollY + padding) {
+        top = scrollY + padding;
+      }
+      if (top + tooltipHeight > scrollY + viewportHeight - padding) {
+        top = scrollY + viewportHeight - tooltipHeight - padding;
+      }
+
+      setPosition({ top, left });
+    };
+
+    // Use requestAnimationFrame to ensure DOM is ready
+    const rafId = requestAnimationFrame(() => {
+      updatePosition();
+    });
+
+    // Update position on scroll/resize
+    const handleUpdate = () => {
+      if (isVisible) {
+        requestAnimationFrame(updatePosition);
       }
     };
 
-    if (!isVisible) {
-      setPositionX("center");
-      setPositionY("top");
-    } else {
-      detectCollision();
-    }
-  }, [isVisible]);
+    window.addEventListener("scroll", handleUpdate, true);
+    window.addEventListener("resize", handleUpdate);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", handleUpdate, true);
+      window.removeEventListener("resize", handleUpdate);
+    };
+  }, [isVisible, side, sideOffset]);
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: it's fine, but todo fix
-    <div
-      aria-describedby={isVisible ? tooltipId : undefined}
-      className={cn("relative inline-block", className)}
-      onMouseEnter={() =>
-        isHoverAvailable && showTooltip(tooltipIdentifier, false)
-      }
-      onMouseLeave={() => hideTooltip()}
-      onPointerDown={(e: React.PointerEvent) => {
-        if (e.pointerType === "mouse") {
-          setIsPointer(true);
+    <>
+      <div
+        ref={triggerRef}
+        aria-describedby={isVisible ? tooltipId : undefined}
+        className={cn("inline-block", className)}
+        onMouseEnter={() =>
+          isHoverAvailable && showTooltip(tooltipIdentifier, false)
         }
-      }}
-      onPointerUp={() => setIsPointer(false)}
-      onFocus={() => {
-        // only allow tooltips when hover state is available
-        if (isHoverAvailable) {
-          isPointer // if user clicks with a mouse, do not auto-populate tooltip
-            ? showTooltip(tooltipIdentifier, false)
-            : showTooltip(tooltipIdentifier, true);
-        } else {
-          hideTooltip();
-        }
-      }}
-      onBlur={() => hideTooltip()}
-    >
-      {children}
-      {isVisible && (
-        <span
-          aria-hidden={!isVisible}
-          className={cn(
-            "bg-ob-base-1000 text-ob-inverted absolute w-max rounded-md px-2 py-1 text-sm shadow before:absolute before:top-0 before:left-0 before:size-full before:scale-[1.5] before:bg-transparent",
-            {
-              "left-0 translate-x-0": positionX === "left",
-              "right-0 translate-x-0": positionX === "right",
-              "left-1/2 -translate-x-1/2": positionX === "center",
-              "-bottom-7": positionY === "bottom",
-              "-top-7": positionY === "top"
-            }
-          )}
-          id={tooltipId}
-          ref={tooltipRef}
-          role="tooltip"
-        >
-          {content}
-        </span>
-      )}
-    </div>
+        onMouseLeave={() => hideTooltip()}
+        onPointerDown={(e: React.PointerEvent) => {
+          if (e.pointerType === "mouse") {
+            setIsPointer(true);
+          }
+        }}
+        onPointerUp={() => setIsPointer(false)}
+        onFocus={() => {
+          if (isHoverAvailable) {
+            isPointer
+              ? showTooltip(tooltipIdentifier, false)
+              : showTooltip(tooltipIdentifier, true);
+          } else {
+            hideTooltip();
+          }
+        }}
+        onBlur={() => hideTooltip()}
+      >
+        {children}
+      </div>
+      {isVisible && position && typeof document !== "undefined" &&
+        createPortal(
+          <span
+            ref={tooltipRef}
+            id={tooltipId}
+            role="tooltip"
+            aria-hidden={false}
+            className="bg-neutral-900 text-white dark:bg-neutral-800 dark:text-neutral-100 fixed w-max rounded-md px-2 py-1 text-sm shadow-lg shadow-black/20 z-[9999] pointer-events-none"
+            style={{
+              top: `${position.top}px`,
+              left: `${position.left}px`,
+            }}
+          >
+            {content}
+          </span>,
+          document.body
+        )}
+    </>
   );
 };

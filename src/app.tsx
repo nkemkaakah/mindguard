@@ -65,6 +65,7 @@ import { Textarea } from "@/components/textarea/Textarea";
 import { MemoizedMarkdown } from "@/components/memoized-markdown";
 import { ToolInvocationCard } from "@/components/tool-invocation-card/ToolInvocationCard";
 import { DropdownMenu } from "@/components/dropdown/DropdownMenu";
+import { Tooltip } from "@/components/tooltip/Tooltip";
 
 // Icon imports
 import {
@@ -803,21 +804,23 @@ export default function Chat() {
         >
           <div className="flex items-end gap-2">
             <div className="flex items-center gap-1">
+              <Tooltip content="File uploads coming soon" side="top" sideOffset={8}>
+                <Button
+                  variant="ghost"
+                  size="md"
+                  shape="square"
+                  className="h-9 w-9 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  type="button"
+                  aria-label="Attach file"
+                >
+                  <Paperclip size={20} />
+                </Button>
+              </Tooltip>
               <Button
                 variant="ghost"
                 size="md"
                 shape="square"
-                className="h-9 w-9 text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
-                type="button"
-                aria-label="Attach file"
-              >
-                <Paperclip size={20} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="md"
-                shape="square"
-                className={`h-9 w-9 transition-colors ${
+                className={`h-9 w-9 cursor-pointer transition-colors ${
                   isRecording
                     ? "text-red-500 hover:text-red-600 animate-pulse"
                     : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
