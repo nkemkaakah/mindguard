@@ -28,6 +28,7 @@ interface Env {
   mindguard: AgentNamespace<Agent>;
   OPENAI_API_KEY?: string;
   AI?: any; // Workers AI binding (from wrangler.jsonc)
+  CHECKIN_WORKFLOW?: any; // Workflows binding for check-in workflow
 }
 
 /**
@@ -56,6 +57,10 @@ interface MindGuardState {
  * Tracks emotional tone, provides recommendations, and schedules daily check-ins
  */
 export class MindGuard extends AIChatAgent<Env, MindGuardState> {
+  // Toggle between workflows (true) and cron jobs (false)
+  // Set to true to use workflows, false to use cron jobs
+  private readonly USE_WORKFLOWS = false;
+
   /**
    * Initialize database schema on first use
    */
@@ -131,6 +136,24 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
   }
 
   /**
+   * Called when the Agent instance starts or wakes from hibernation
+   * Initializes the database and schedules the daily check-in cron job
+   */
+  async onStart() {
+    try {
+      // Initialize database schema
+      await this.initializeDatabase();
+      
+      // Schedule the daily check-in cron job
+      await this.scheduleDailyCheckIn();
+      
+      console.log("Agent started: database initialized and daily check-in scheduled");
+    } catch (error) {
+      console.error("Error in onStart:", error);
+    }
+  }
+
+  /**
    * Get the AI model based on user preference
    */
   getModel() {
@@ -166,6 +189,33 @@ export class MindGuard extends AIChatAgent<Env, MindGuardState> {
   ) {
     // Initialize database on first message
     await this.initializeDatabase();
+
+    // Check if this is a response to a check-in workflow
+    // If workflow is waiting, send event to workflow
+    if (this.env.CHECKIN_WORKFLOW && this.messages.length > 0) {
+      const lastMessage = this.messages[this.messages.length - 1];
+      if (lastMessage.role === "user" && lastMessage.parts?.[0]?.type === "text") {
+        const userText = lastMessage.parts[0].text;
+        // Check if this looks like a check-in response (simple heuristic)
+        // In production, you might want a more sophisticated check
+        const userId = this.state?.userId || "default";
+        
+        try {
+          // Try to send event to workflow (workflow might not be waiting, which is fine)
+          // Note: This is a simplified approach - in production you'd track active workflows
+          await this.env.CHECKIN_WORKFLOW.sendEvent("user-check-in-response", {
+            userId,
+            response: userText
+          });
+        } catch (error) {
+          // Workflow might not be waiting for this event, which is fine
+          // Only log if it's not a "no workflow waiting" type error
+          if (!(error instanceof Error && error.message.includes("not found"))) {
+            console.log("Could not send event to workflow (workflow may not be active):", error);
+          }
+        }
+      }
+    }
 
     // Collect all tools, including MCP tools
     const allTools = {
@@ -335,29 +385,74 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
   }
 
   /**
-   * Execute scheduled daily check-in
+   * Execute scheduled daily check-in - can use workflows or cron jobs based on preference
    */
   async executeDailyCheckIn(description: string, _task: Schedule<string>) {
+    console.log(`[Cron Jobs] executeDailyCheckIn called at ${new Date().toISOString()}`);
+    console.log(`[Cron Jobs] Description: ${description}, Task:`, _task?.id || "N/A");
     try {
-      // Send proactive check-in message
-      await this.saveMessages([
-        ...this.messages,
-        {
-          id: generateId(),
-          role: "assistant",
-          parts: [
-            {
-              type: "text",
-              text: "Good morning! 🌅 It's time for your daily check-in. How are you feeling today? Take a moment to reflect on your emotional state and share what's on your mind."
+      // Use workflows if enabled AND available
+      if (this.USE_WORKFLOWS && this.env.CHECKIN_WORKFLOW) {
+        const userId = this.state?.userId || "default";
+        // Use the Durable Object's name/id - for default agent, use "default"
+        const agentId = "default"; // The agent name used in routing
+        
+        // Trigger the check-in workflow
+        // Get the worker URL from the request context or use default
+        const workerUrl = "https://mindguard.nkemkaomeiza.workers.dev";
+        
+        await this.env.CHECKIN_WORKFLOW.create({
+          userId,
+          agentId,
+          checkInTime: new Date().toISOString(),
+          workerUrl: workerUrl
+        });
+        
+        console.log(`[Workflows] Check-in workflow triggered for user ${userId}`);
+      } else {
+        // Use cron job approach (simple message sent directly)
+        console.log(`[Cron Jobs] Executing daily check-in via cron job`);
+        await this.saveMessages([
+          ...this.messages,
+          {
+            id: generateId(),
+            role: "assistant",
+            parts: [
+              {
+                type: "text",
+                text: "Good morning! 🌅 It's time for your daily check-in. How are you feeling today? Take a moment to reflect on your emotional state and share what's on your mind."
+              }
+            ],
+            metadata: {
+              createdAt: new Date()
             }
-          ],
-          metadata: {
-            createdAt: new Date()
           }
-        }
-      ]);
+        ]);
+      }
     } catch (error) {
       console.error("Error executing daily check-in:", error);
+      // Fallback to simple message on error
+      try {
+        console.log(`[Fallback] Using cron job fallback due to error`);
+        await this.saveMessages([
+          ...this.messages,
+          {
+            id: generateId(),
+            role: "assistant",
+            parts: [
+              {
+                type: "text",
+                text: "Good morning! 🌅 It's time for your daily check-in. How are you feeling today?"
+              }
+            ],
+            metadata: {
+              createdAt: new Date()
+            }
+          }
+        ]);
+      } catch (fallbackError) {
+        console.error("Error in fallback check-in message:", fallbackError);
+      }
     }
   }
 
@@ -507,20 +602,44 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
         return;
       }
 
-      const [hour, minute] = checkInTime.split(':');
+      // TEMPORARY: Commented out for testing (cron runs every minute)
+      // const [hour, minute] = checkInTime.split(':');
 
       // Cron: minute hour * * * (runs daily at specified time)
-      const cronPattern = `${minute} ${hour} * * *`;
+      // TEMPORARY: Changed to run every minute for testing
+      // TODO: Change back to: const cronPattern = `${minute} ${hour} * * *`;
+      const cronPattern = "* * * * *"; // Runs every minute
 
       // Check if daily check-in is already scheduled
       // Look for schedules that call executeDailyCheckIn
       const existingSchedules = this.getSchedules();
+      console.log(`[Schedule] Existing schedules:`, existingSchedules.length);
       const hasDailyCheckIn = existingSchedules.some(
         schedule => schedule.callback === "executeDailyCheckIn"
       );
 
       if (!hasDailyCheckIn) {
-        this.schedule(cronPattern, "executeDailyCheckIn", "Daily wellness check-in");
+        console.log(`[Schedule] Creating new schedule with pattern: ${cronPattern}`);
+        const scheduleResult = await this.schedule(cronPattern, "executeDailyCheckIn", "Daily wellness check-in");
+        console.log(`[Schedule] Schedule created successfully:`, scheduleResult?.id || "unknown");
+        
+        // Verify it was created
+        const verifySchedules = this.getSchedules();
+        console.log(`[Schedule] Total schedules after creation:`, verifySchedules.length);
+        const verifyCheckIn = verifySchedules.find(s => s.callback === "executeDailyCheckIn");
+        if (verifyCheckIn) {
+          console.log(`[Schedule] Verified check-in schedule exists:`, {
+            id: verifyCheckIn.id,
+            callback: verifyCheckIn.callback,
+            type: verifyCheckIn.type,
+            time: verifyCheckIn.time ? new Date(verifyCheckIn.time).toISOString() : "N/A",
+            cron: (verifyCheckIn as any).cron || "N/A"
+          });
+        } else {
+          console.error(`[Schedule] ERROR: Check-in schedule was not found after creation!`);
+        }
+      } else {
+        console.log(`[Schedule] Daily check-in already scheduled, skipping creation`);
       }
     } catch (error) {
       console.error("Error scheduling daily check-in:", error);
@@ -760,6 +879,190 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       }
     }
 
+    // Handle workflow internal endpoints
+    if (pathname === "/internal/send-check-in-message" || pathname.endsWith("/internal/send-check-in-message")) {
+      if (request.method === "POST") {
+        try {
+          const body = await request.json() as { message?: string };
+          const { message } = body;
+
+          if (!message) {
+            return Response.json({ error: "Message is required" }, { status: 400 });
+          }
+
+          await this.saveMessages([
+            ...this.messages,
+            {
+              id: generateId(),
+              role: "assistant",
+              parts: [{ type: "text", text: message }],
+              metadata: { createdAt: new Date() }
+            }
+          ]);
+
+          return Response.json({ success: true });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to send message" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    if (pathname === "/internal/analyze-tone" || pathname.endsWith("/internal/analyze-tone")) {
+      if (request.method === "POST") {
+        try {
+          const body = await request.json() as { message?: string };
+          const { message } = body;
+
+          if (!message) {
+            return Response.json({ error: "Message is required" }, { status: 400 });
+          }
+
+          // Simple tone analysis - can be enhanced with AI
+          const lowerMessage = message.toLowerCase();
+          let tone = "neutral";
+          let intensity = 5;
+
+          if (lowerMessage.includes("good") || lowerMessage.includes("great") || lowerMessage.includes("happy") || lowerMessage.includes("excited")) {
+            tone = "positive";
+            intensity = 7;
+          } else if (lowerMessage.includes("bad") || lowerMessage.includes("sad") || lowerMessage.includes("angry") || lowerMessage.includes("worried") || lowerMessage.includes("anxious")) {
+            tone = "negative";
+            intensity = 7;
+          }
+
+          return Response.json({ tone, intensity, keywords: [] });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to analyze tone" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    if (pathname === "/internal/get-recommendations" || pathname.endsWith("/internal/get-recommendations")) {
+      if (request.method === "POST") {
+        try {
+          const body = await request.json() as { emotionalTone?: string; intensity?: number };
+          const { emotionalTone = "neutral" } = body;
+
+          // Get recommendations based on tone
+          const recommendations = {
+            positive: [
+              "Practice gratitude journaling - write down 3 things you're grateful for today",
+              "Share your positive energy with others - reach out to a friend or loved one",
+              "Set new goals while feeling motivated - channel this energy into something meaningful"
+            ],
+            neutral: [
+              "Take a mindful walk - focus on your breathing and surroundings",
+              "Practice deep breathing exercises - 4-7-8 technique",
+              "Try a new hobby or activity - explore something that interests you"
+            ],
+            negative: [
+              "Practice 4-7-8 breathing technique - inhale for 4, hold for 7, exhale for 8",
+              "Write down your feelings in a journal - express what you're experiencing",
+              "Consider talking to a trusted friend or professional - you don't have to go through this alone"
+            ]
+          };
+
+          const toneKey = emotionalTone.toLowerCase() as keyof typeof recommendations;
+          const recs = recommendations[toneKey] || recommendations.neutral;
+
+          return Response.json({ recommendations: recs });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to get recommendations" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    if (pathname === "/internal/save-check-in" || pathname.endsWith("/internal/save-check-in")) {
+      if (request.method === "POST") {
+        try {
+          await this.initializeDatabase();
+          const body = await request.json() as { emotionalTone?: string; summary?: string; recommendations?: string[] };
+          const { emotionalTone, summary, recommendations = [] } = body;
+
+          if (!emotionalTone || !summary) {
+            return Response.json({ error: "Emotional tone and summary are required" }, { status: 400 });
+          }
+
+          await this.saveCheckIn(emotionalTone, summary, recommendations);
+          return Response.json({ success: true });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to save check-in" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    if (pathname === "/internal/send-message" || pathname.endsWith("/internal/send-message")) {
+      if (request.method === "POST") {
+        try {
+          const body = await request.json() as { message?: string };
+          const { message } = body;
+
+          if (!message) {
+            return Response.json({ error: "Message is required" }, { status: 400 });
+          }
+
+          await this.saveMessages([
+            ...this.messages,
+            {
+              id: generateId(),
+              role: "assistant",
+              parts: [{ type: "text", text: message }],
+              metadata: { createdAt: new Date() }
+            }
+          ]);
+
+          return Response.json({ success: true });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to send message" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    // Handle get-messages endpoint (used by useAgentChat to fetch initial messages)
+    if ((pathname === "/get-messages" || pathname.endsWith("/get-messages")) && request.method === "GET") {
+      try {
+        // Return the current messages from the agent
+        // AIChatAgent stores messages in this.messages
+        return Response.json(this.messages || []);
+      } catch (error) {
+        console.error("Error getting messages:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to get messages" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // TEST ENDPOINT: Manually trigger check-in (for testing cron jobs)
+    if ((pathname === "/test-check-in" || pathname.endsWith("/test-check-in")) && request.method === "POST") {
+      try {
+        console.log("[TEST] Manually triggering check-in...");
+        await this.executeDailyCheckIn("Manual test check-in", {} as any);
+        return Response.json({ success: true, message: "Check-in triggered manually" });
+      } catch (error) {
+        console.error("Error in test check-in:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to trigger check-in" },
+          { status: 500 }
+        );
+      }
+    }
+
     // For all other requests, let the parent class handle it
     // AIChatAgent doesn't override onRequest, so return 404 for unmatched routes
     return new Response("Not found", { status: 404 });
@@ -770,7 +1073,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
  * Worker entry point that routes incoming requests to the appropriate handler
  */
 export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/check-open-ai-key") {
@@ -860,6 +1163,114 @@ export default {
         console.error("Error updating model provider:", error);
         return Response.json(
           { error: error instanceof Error ? error.message : "Failed to update model provider" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Test endpoint: Trigger workflow manually
+    if (url.pathname === "/api/test-workflow" && request.method === "POST") {
+      try {
+        if (!env.CHECKIN_WORKFLOW) {
+          return Response.json(
+            { error: "Workflow binding not available" },
+            { status: 500 }
+          );
+        }
+
+        const body = await request.json() as { userId?: string; agentId?: string };
+        const userId = body.userId || "test-user";
+        const agentId = body.agentId || "default";
+
+        const instance = await env.CHECKIN_WORKFLOW.create({
+          userId,
+          agentId,
+          checkInTime: new Date().toISOString()
+        });
+
+        return Response.json({
+          success: true,
+          instanceId: instance.id,
+          message: "Workflow triggered successfully"
+        });
+      } catch (error) {
+        console.error("Error triggering workflow:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to trigger workflow" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Test endpoint: Send event to workflow
+    if (url.pathname === "/api/test-workflow-event" && request.method === "POST") {
+      try {
+        if (!env.CHECKIN_WORKFLOW) {
+          return Response.json(
+            { error: "Workflow binding not available" },
+            { status: 500 }
+          );
+        }
+
+        const body = await request.json() as { instanceId?: string; response?: string };
+        const instanceId = body.instanceId;
+        const response = body.response;
+
+        if (!instanceId || !response) {
+          return Response.json(
+            { error: "instanceId and response are required" },
+            { status: 400 }
+          );
+        }
+
+        const instance = await env.CHECKIN_WORKFLOW.get(instanceId);
+        await instance.sendEvent("user-check-in-response", {
+          userId: "test-user",
+          response: response
+        });
+
+        return Response.json({
+          success: true,
+          message: "Event sent successfully"
+        });
+      } catch (error) {
+        console.error("Error sending event:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to send event" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Test endpoint: Get workflow status
+    if (url.pathname === "/api/workflow-status" && request.method === "GET") {
+      try {
+        if (!env.CHECKIN_WORKFLOW) {
+          return Response.json(
+            { error: "Workflow binding not available" },
+            { status: 500 }
+          );
+        }
+
+        const instanceId = url.searchParams.get("instanceId");
+        if (!instanceId) {
+          return Response.json(
+            { error: "instanceId query parameter is required" },
+            { status: 400 }
+          );
+        }
+
+        const instance = await env.CHECKIN_WORKFLOW.get(instanceId);
+        const status = await instance.status();
+
+        return Response.json({
+          success: true,
+          status: status
+        });
+      } catch (error) {
+        console.error("Error getting workflow status:", error);
+        return Response.json(
+          { error: error instanceof Error ? error.message : "Failed to get workflow status" },
           { status: 500 }
         );
       }

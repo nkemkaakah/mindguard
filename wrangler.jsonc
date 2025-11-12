@@ -31,20 +31,18 @@
 			"new_sqlite_classes": [
 				"MindGuard"
 			]
-		},
-		{
-			"tag": "v2",
-			"renamed_classes": [
-				{
-					"from": "Chat",
-					"to": "MindGuard"
-				}
-			]
 		}
 	],
 	"observability": {
 		"enabled": true
-	}
+	},
+	"workflows": [
+		{
+			"name": "checkin-workflow",
+			"binding": "CHECKIN_WORKFLOW",
+			"class_name": "CheckInWorkflow"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

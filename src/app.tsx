@@ -275,6 +275,7 @@ export default function Chat() {
 
   const agent = useAgent({
     agent: "mindguard",
+    name: "default",
     onStateUpdate: (newState: any) => {
       // Sync agent name from state
       if (newState?.preferences?.agentName) {
@@ -319,24 +320,35 @@ export default function Chat() {
 
     try {
       // Send message to agent with timestamp
-      await sendMessage(
-        {
-          role: "user",
+    await sendMessage(
+      {
+        role: "user",
           parts: [{ type: "text", text: message }],
           metadata: {
             createdAt: new Date().toISOString()
           }
-        },
-        {
-          body: extraData
-        }
-      );
+      },
+      {
+        body: extraData
+      }
+    );
     } catch (error) {
       console.error("Error sending message:", error);
       // Optionally show user-friendly error message
       setAgentInput(message); // Restore message on error
     }
   };
+
+  // Verify agent object has correct properties
+  useEffect(() => {
+    if (agent) {
+      console.log("Agent object:", {
+        agent: (agent as any).agent,
+        name: (agent as any).name,
+        url: (agent as any).url
+      });
+    }
+  }, [agent]);
 
   const {
     messages: agentMessages,
@@ -346,7 +358,12 @@ export default function Chat() {
     stop,
     clearHistory
   } = useAgentChat<unknown, UIMessage<{ createdAt: string }>>({
-    agent
+    agent,
+    // Explicitly ensure the agent name is used
+    ...(agent && {
+      // The agent object should already contain agent and name properties
+      // but we'll verify it's being used correctly
+    })
   });
 
   // Scroll to bottom when messages change
@@ -572,32 +589,32 @@ export default function Chat() {
                       {/* <p className="text-xs text-neutral-400">Last seen {getLastSeenTime()}</p> */}
                     </div>
                   </div>
-                </div>
+          </div>
               )}
-            </div>
+          </div>
 
             <div className="flex items-center gap-1">
-            
-              <Button
-                variant="ghost"
-                size="md"
-                shape="square"
+
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
                 className="h-9 w-9 text-neutral-300 hover:text-white hover:bg-neutral-700"
-                onClick={toggleTheme}
+            onClick={toggleTheme}
                 aria-label="Toggle theme"
-              >
-                {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-              </Button>
-              <Button
-                variant="ghost"
-                size="md"
-                shape="square"
+          >
+            {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="md"
+            shape="square"
                 className="h-9 w-9 text-neutral-300 hover:text-red-400 hover:bg-neutral-700"
                 onClick={handleDeleteChat}
                 aria-label="Delete chat"
-              >
-                <Trash size={20} />
-              </Button>
+          >
+            <Trash size={20} />
+          </Button>
             </div>
           </div>
         </div>
@@ -677,19 +694,19 @@ export default function Chat() {
                       </p>
                     )}
 
-                    <div>
-                      {m.parts?.map((part, i) => {
-                        if (part.type === "text") {
-                          return (
-                            // biome-ignore lint/suspicious/noArrayIndexKey: immutable index
+                      <div>
+                        {m.parts?.map((part, i) => {
+                          if (part.type === "text") {
+                            return (
+                              // biome-ignore lint/suspicious/noArrayIndexKey: immutable index
                             <div key={i} className="relative">
                               <div
                                 className={`px-4 py-2.5 rounded-2xl ${
-                                  isUser
+                                    isUser
                                     ? "bg-gradient-to-br from-blue-500 to-cyan-500 text-white rounded-br-sm"
                                     : "bg-neutral-200 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 rounded-bl-sm"
-                                } ${
-                                  part.text.startsWith("scheduled message")
+                                  } ${
+                                    part.text.startsWith("scheduled message")
                                     ? "border-2 border-[#F48120]/50"
                                     : ""
                                 } shadow-sm`}
@@ -707,65 +724,65 @@ export default function Chat() {
                                   />
                                 </div>
                               </div>
-                              <p
+                                <p
                                 className={`text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 px-1 ${
-                                  isUser ? "text-right" : "text-left"
-                                }`}
-                              >
-                                {formatTime(
-                                  m.metadata?.createdAt
-                                    ? new Date(m.metadata.createdAt)
-                                    : new Date()
-                                )}
-                              </p>
-                            </div>
-                          );
-                        }
-
-                        if (
-                          isToolUIPart(part) &&
-                          m.id.startsWith("assistant")
-                        ) {
-                          const toolCallId = part.toolCallId;
-                          const toolName = part.type.replace("tool-", "");
-                          const needsConfirmation =
-                            toolsRequiringConfirmation.includes(
-                              toolName as keyof typeof tools
+                                    isUser ? "text-right" : "text-left"
+                                  }`}
+                                >
+                                  {formatTime(
+                                    m.metadata?.createdAt
+                                      ? new Date(m.metadata.createdAt)
+                                      : new Date()
+                                  )}
+                                </p>
+                              </div>
                             );
+                          }
 
-                          // Skip rendering the card in debug mode
-                          if (showDebug) return null;
+                          if (
+                            isToolUIPart(part) &&
+                            m.id.startsWith("assistant")
+                          ) {
+                            const toolCallId = part.toolCallId;
+                            const toolName = part.type.replace("tool-", "");
+                            const needsConfirmation =
+                              toolsRequiringConfirmation.includes(
+                                toolName as keyof typeof tools
+                              );
 
-                          return (
-                            <ToolInvocationCard
-                              // biome-ignore lint/suspicious/noArrayIndexKey: using index is safe here as the array is static
-                              key={`${toolCallId}-${i}`}
-                              toolUIPart={part}
-                              toolCallId={toolCallId}
-                              needsConfirmation={needsConfirmation}
-                              onSubmit={({ toolCallId, result }) => {
-                                addToolResult({
-                                  tool: part.type.replace("tool-", ""),
-                                  toolCallId,
-                                  output: result
-                                });
-                              }}
-                              addToolResult={(toolCallId, result) => {
-                                addToolResult({
-                                  tool: part.type.replace("tool-", ""),
-                                  toolCallId,
-                                  output: result
-                                });
-                              }}
-                            />
-                          );
-                        }
-                        return null;
-                      })}
-                      </div>
+                            // Skip rendering the card in debug mode
+                            if (showDebug) return null;
+
+                            return (
+                              <ToolInvocationCard
+                                // biome-ignore lint/suspicious/noArrayIndexKey: using index is safe here as the array is static
+                                key={`${toolCallId}-${i}`}
+                                toolUIPart={part}
+                                toolCallId={toolCallId}
+                                needsConfirmation={needsConfirmation}
+                                onSubmit={({ toolCallId, result }) => {
+                                  addToolResult({
+                                    tool: part.type.replace("tool-", ""),
+                                    toolCallId,
+                                    output: result
+                                  });
+                                }}
+                                addToolResult={(toolCallId, result) => {
+                                  addToolResult({
+                                    tool: part.type.replace("tool-", ""),
+                                    toolCallId,
+                                    output: result
+                                  });
+                                }}
+                              />
+                            );
+                          }
+                          return null;
+                        })}
                     </div>
                   </div>
                 </div>
+              </div>
             );
           })}
           <div ref={messagesEndRef} />
@@ -863,56 +880,56 @@ export default function Chat() {
               ) : (
                 // Normal input state
                 <>
-                  <Textarea
-                    disabled={pendingToolCallConfirmation}
-                    placeholder={
-                      pendingToolCallConfirmation
-                        ? "Please respond to the tool confirmation above..."
+              <Textarea
+                disabled={pendingToolCallConfirmation}
+                placeholder={
+                  pendingToolCallConfirmation
+                    ? "Please respond to the tool confirmation above..."
                         : "Type a message..."
-                    }
+                }
                     className="w-full border border-neutral-300 dark:border-neutral-700 px-4 py-3 pr-12 rounded-2xl bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 text-sm min-h-[44px] max-h-[120px] overflow-hidden resize-none"
-                    value={agentInput}
-                    onChange={(e) => {
-                      handleAgentInputChange(e);
-                      e.target.style.height = "auto";
+                value={agentInput}
+                onChange={(e) => {
+                  handleAgentInputChange(e);
+                  e.target.style.height = "auto";
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
                       setTextareaHeight(`${Math.min(e.target.scrollHeight, 120)}px`);
-                    }}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        !e.shiftKey &&
-                        !e.nativeEvent.isComposing
-                      ) {
-                        e.preventDefault();
-                        handleAgentSubmit(e as unknown as React.FormEvent);
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    handleAgentSubmit(e as unknown as React.FormEvent);
                         setTextareaHeight("auto");
-                      }
-                    }}
+                  }
+                }}
                     rows={1}
-                    style={{ height: textareaHeight }}
-                  />
+                style={{ height: textareaHeight }}
+              />
                   <div className="absolute bottom-2 right-2">
-                    {status === "submitted" || status === "streaming" ? (
-                      <button
-                        type="button"
-                        onClick={stop}
+                {status === "submitted" || status === "streaming" ? (
+                  <button
+                    type="button"
+                    onClick={stop}
                         className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
-                        aria-label="Stop generation"
-                      >
-                        <Stop size={16} />
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
+                    aria-label="Stop generation"
+                  >
+                    <Stop size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
                         className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 text-white hover:from-blue-600 hover:to-cyan-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 shadow-md"
-                        disabled={pendingToolCallConfirmation || !agentInput.trim()}
-                        aria-label="Send message"
-                      >
+                    disabled={pendingToolCallConfirmation || !agentInput.trim()}
+                    aria-label="Send message"
+                  >
                         <PaperPlaneTilt size={16} weight="fill" />
-                      </button>
-                    )}
-                  </div>
+                  </button>
+                )}
+              </div>
                 </>
               )}
             </div>
