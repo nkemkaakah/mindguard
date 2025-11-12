@@ -1,238 +1,277 @@
-# 🤖 Chat Agent Starter Kit
+# 🛡️ MindGuard - AI Wellness Companion
 
-![npm i agents command](./npm-agents-banner.svg)
+**Live Demo:** [https://mindguard.nkemkaomeiza.workers.dev/](https://mindguard.nkemkaomeiza.workers.dev/)
 
-<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/agents-starter"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"/></a>
+MindGuard is an AI-powered wellness companion built on Cloudflare Workers that helps users track their mental well-being through daily check-ins, emotional tone analysis, and personalized mindfulness recommendations.
 
-A starter template for building AI-powered chat agents using Cloudflare's Agent platform, powered by [`agents`](https://www.npmjs.com/package/agents). This project provides a foundation for creating interactive chat experiences with AI, complete with a modern UI and tool integration capabilities.
+## ✨ Features
 
-## Features
+### Core Wellness Features
+- **Daily Check-ins** - Proactive wellness check-ins with automated scheduling
+- **Emotional Tone Analysis** - AI-powered analysis of user messages (positive/neutral/negative)
+- **Mindfulness Recommendations** - Personalized coping techniques based on emotional state
+- **Check-in History** - Track your wellness journey over time with persistent storage
+- **Voice Input** - Speak your thoughts using browser-based speech recognition
+- **Model Provider Switching** - Choose between OpenAI GPT-4 or Cloudflare Workers AI (Llama 3.3)
 
-- 💬 Interactive chat interface with AI
-- 🛠️ Built-in tool system with human-in-the-loop confirmation
-- 📅 Advanced task scheduling (one-time, delayed, and recurring via cron)
-- 🌓 Dark/Light theme support
-- ⚡️ Real-time streaming responses
-- 🔄 State management and chat history
-- 🎨 Modern, responsive UI
+### User Experience Features
+- **Customizable Agent Name** - Personalize your AI companion's name
+- **Dark/Light Theme** - Toggle between themes with persistent preferences
+- **Real-time Chat Interface** - Stream responses with modern, responsive UI
+- **Message History** - Persistent conversation history across sessions
+- **Task Scheduling** - Schedule one-time, delayed, or recurring tasks using cron patterns
 
-## Prerequisites
+### Technical Features
+- **Durable Objects** - Persistent state management and real-time communication
+- **SQLite Database** - Embedded database for check-in history and preferences
+- **Cloudflare Workflows** - Optional workflow orchestration for complex check-in processes
+- **WebSocket Support** - Real-time bidirectional communication
+- **Tool System** - Extensible tool framework for AI capabilities
 
+## 🚀 Quick Start
+
+### Try It Online
+
+Visit the live deployment: **[https://mindguard.nkemkaomeiza.workers.dev/](https://mindguard.nkemkaomeiza.workers.dev/)**
+
+No setup required - just start chatting with MindGuard!
+
+### Run Locally
+
+#### Prerequisites
+
+- Node.js 18+ and npm
 - Cloudflare account
-- OpenAI API key
+- OpenAI API key (optional - can use Workers AI instead)
 
-## Quick Start
+#### Installation
 
-1. Create a new project:
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd mindguard
+   ```
 
-```bash
-npx create-cloudflare@latest --template cloudflare/agents-starter
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+
+   Create a `.dev.vars` file in the root directory:
+   ```env
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+   > **Note:** If you prefer to use Cloudflare Workers AI (Llama 3.3), you don't need an OpenAI API key. The app will automatically use Workers AI when OpenAI is not configured.
+
+4. **Run locally**
+   ```bash
+   npm start
+   ```
+
+   The app will be available at `http://localhost:5173`
+
+5. **Deploy to Cloudflare**
+   ```bash
+   npm run deploy
+   ```
+
+   For production, set your OpenAI API key as a secret:
+   ```bash
+   wrangler secret put OPENAI_API_KEY
+   ```
+
+## 📖 Usage Guide
+
+### Getting Started
+
+1. **Start a Conversation**
+   - Simply type a message about how you're feeling
+   - Example: "I'm feeling stressed about work today"
+
+2. **Voice Input**
+   - Click the microphone icon in the input area
+   - Speak your message (requires browser support)
+   - Click stop when finished
+
+3. **Switch AI Models**
+   - Click the model provider dropdown in the header (GPT-4 / Llama 3.3)
+   - Select your preferred model
+
+4. **Customize Your Agent**
+   - Click the pencil icon next to the agent name
+   - Enter a custom name (up to 50 characters)
+   - Press Enter or click the checkmark to save
+
+### Daily Check-ins
+
+**Manual Check-in:**
+- Tell MindGuard how you're feeling
+- The AI will analyze your emotional tone
+- Receive personalized mindfulness recommendations
+- Your check-in is automatically saved
+
+**Scheduled Check-ins:**
+- Ask MindGuard to schedule daily check-ins
+- Example: "Schedule a daily check-in at 9 AM"
+- MindGuard will proactively message you at the scheduled time
+
+**View History:**
+- Ask: "Show me my check-in history"
+- View past emotional states and summaries
+- Track your wellness journey over time
+
+### Task Scheduling
+
+MindGuard supports flexible task scheduling:
+
+- **One-time tasks:** "Remind me to meditate tomorrow at 8 PM"
+- **Delayed tasks:** "Remind me in 30 minutes to take a break"
+- **Recurring tasks:** "Schedule a daily wellness reminder at 9 AM"
+
+### Example Conversations
+
+```
+You: I'm feeling anxious about my presentation tomorrow
+
+MindGuard: I understand that presentations can be stressful. Let me help you with some 
+strategies to manage this anxiety. Would you like me to analyze your emotional state 
+and provide some personalized recommendations?
+
+You: Yes, please
+
+MindGuard: [Analyzes tone] Based on your message, I detect a negative emotional tone 
+with moderate intensity. Here are some recommendations:
+- Practice 4-7-8 breathing technique
+- Write down your feelings in a journal
+- Try progressive muscle relaxation
+- Consider talking to a trusted friend
+
+Would you like me to save this check-in?
 ```
 
-2. Install dependencies:
-
-```bash
-npm install
-```
-
-3. Set up your environment:
-
-Create a `.dev.vars` file:
-
-```env
-OPENAI_API_KEY=your_openai_api_key
-```
-
-4. Run locally:
-
-```bash
-npm start
-```
-
-5. Deploy:
-
-```bash
-npm run deploy
-```
-
-## Project Structure
+## 🏗️ Project Structure
 
 ```
+mindguard/
 ├── src/
-│   ├── app.tsx        # Chat UI implementation
-│   ├── server.ts      # Chat agent logic
-│   ├── tools.ts       # Tool definitions
-│   ├── utils.ts       # Helper functions
-│   └── styles.css     # UI styling
+│   ├── app.tsx              # Main React chat interface
+│   ├── server.ts            # MindGuard agent implementation
+│   ├── tools.ts             # AI tool definitions
+│   ├── utils.ts             # Helper functions
+│   ├── workflows/
+│   │   └── checkInWorkflow.ts  # Optional workflow for check-ins
+│   ├── components/          # React UI components
+│   │   ├── button/
+│   │   ├── card/
+│   │   ├── dropdown/
+│   │   ├── tooltip/
+│   │   └── ...
+│   └── styles.css           # Global styles
+├── public/                  # Static assets
+├── wrangler.jsonc          # Cloudflare Workers configuration
+├── package.json            # Dependencies and scripts
+└── README.md              # This file
 ```
 
-## Customization Guide
+## 🔧 Configuration
 
-### Adding New Tools
+### Environment Variables
 
-Add new tools in `tools.ts` using the tool builder:
+- `OPENAI_API_KEY` - Your OpenAI API key (optional if using Workers AI)
 
-```ts
-// Example of a tool that requires confirmation
-const searchDatabase = tool({
-  description: "Search the database for user records",
-  parameters: z.object({
-    query: z.string(),
-    limit: z.number().optional()
-  })
-  // No execute function = requires confirmation
-});
+### Wrangler Configuration
 
-// Example of an auto-executing tool
-const getCurrentTime = tool({
-  description: "Get current server time",
-  parameters: z.object({}),
-  execute: async () => new Date().toISOString()
-});
+The `wrangler.jsonc` file configures:
+- Durable Objects for state management
+- Workers AI binding for Llama 3.3
+- SQLite database migrations
+- Workflows (optional)
+- Static assets
 
-// Scheduling tool implementation
-const scheduleTask = tool({
-  description:
-    "schedule a task to be executed at a later time. 'when' can be a date, a delay in seconds, or a cron pattern.",
-  parameters: z.object({
-    type: z.enum(["scheduled", "delayed", "cron"]),
-    when: z.union([z.number(), z.string()]),
-    payload: z.string()
-  }),
-  execute: async ({ type, when, payload }) => {
-    // ... see the implementation in tools.ts
-  }
-});
-```
+### Model Providers
 
-To handle tool confirmations, add execution functions to the `executions` object:
+**OpenAI (GPT-4):**
+- Requires `OPENAI_API_KEY` in environment
+- High-quality responses
+- Paid service
 
-```typescript
-export const executions = {
-  searchDatabase: async ({
-    query,
-    limit
-  }: {
-    query: string;
-    limit?: number;
-  }) => {
-    // Implementation for when the tool is confirmed
-    const results = await db.search(query, limit);
-    return results;
-  }
-  // Add more execution handlers for other tools that require confirmation
-};
-```
+**Workers AI (Llama 3.3):**
+- No API key required
+- Free tier available
+- Runs on Cloudflare's edge network
 
-Tools can be configured in two ways:
+## 🛠️ Development
 
-1. With an `execute` function for automatic execution
-2. Without an `execute` function, requiring confirmation and using the `executions` object to handle the confirmed action. NOTE: The keys in `executions` should match `toolsRequiringConfirmation` in `app.tsx`.
+### Available Scripts
 
-### Use a different AI model provider
+- `npm start` - Start development server
+- `npm run deploy` - Build and deploy to Cloudflare
+- `npm test` - Run tests
+- `npm run format` - Format code with Prettier
+- `npm run check` - Run linting and type checking
 
-The starting [`server.ts`](https://github.com/cloudflare/agents-starter/blob/main/src/server.ts) implementation uses the [`ai-sdk`](https://sdk.vercel.ai/docs/introduction) and the [OpenAI provider](https://sdk.vercel.ai/providers/ai-sdk-providers/openai), but you can use any AI model provider by:
+### Key Technologies
 
-1. Installing an alternative AI provider for the `ai-sdk`, such as the [`workers-ai-provider`](https://sdk.vercel.ai/providers/community-providers/cloudflare-workers-ai) or [`anthropic`](https://sdk.vercel.ai/providers/ai-sdk-providers/anthropic) provider:
-2. Replacing the AI SDK with the [OpenAI SDK](https://github.com/openai/openai-node)
-3. Using the Cloudflare [Workers AI + AI Gateway](https://developers.cloudflare.com/ai-gateway/providers/workersai/#workers-binding) binding API directly
+- **Cloudflare Workers** - Serverless runtime
+- **Cloudflare Agents SDK** - AI agent framework
+- **Durable Objects** - Persistent state
+- **React** - UI framework
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Styling
+- **Vite** - Build tool
 
-For example, to use the [`workers-ai-provider`](https://sdk.vercel.ai/providers/community-providers/cloudflare-workers-ai), install the package:
+## 📊 Architecture
 
-```sh
-npm install workers-ai-provider
-```
+### Agent System
 
-Add an `ai` binding to `wrangler.jsonc`:
+MindGuard extends `AIChatAgent` from Cloudflare's Agents SDK:
+- Handles WebSocket connections for real-time chat
+- Manages conversation state and history
+- Provides tool execution capabilities
+- Supports scheduled tasks
 
-```jsonc
-// rest of file
-  "ai": {
-    "binding": "AI"
-  }
-// rest of file
-```
+### Data Storage
 
-Replace the `@ai-sdk/openai` import and usage with the `workers-ai-provider`:
+- **SQLite Database** - Embedded database for:
+  - Check-in records (date, tone, summary, recommendations)
+  - User preferences (check-in time, timezone, agent name, model provider)
+- **Reactive State** - Real-time state synchronization via `setState()`
 
-```diff
-// server.ts
-// Change the imports
-- import { openai } from "@ai-sdk/openai";
-+ import { createWorkersAI } from 'workers-ai-provider';
+### Tool System
 
-// Create a Workers AI instance
-+ const workersai = createWorkersAI({ binding: env.AI });
+Tools are functions the AI can call:
+- `analyzeEmotionalTone` - Analyzes message sentiment
+- `getMindfulnessRecommendations` - Provides coping strategies
+- `saveCheckInData` - Persists check-ins
+- `getCheckInHistory` - Retrieves past check-ins
+- `scheduleTask` - Schedules future tasks
+- `updateAgentName` - Customizes agent name
 
-// Use it when calling the streamText method (or other methods)
-// from the ai-sdk
-- const model = openai("gpt-4o-2024-11-20");
-+ const model = workersai("@cf/deepseek-ai/deepseek-r1-distill-qwen-32b")
-```
+## 🔐 Privacy & Security
 
-Commit your changes and then run the `agents-starter` as per the rest of this README.
+- All data is stored locally in your Durable Object instance
+- No data is shared between users
+- Conversations are private to your session
+- Check-in history persists across sessions
 
-### Modifying the UI
+## ⚠️ Important Note
 
-The chat interface is built with React and can be customized in `app.tsx`:
+**MindGuard is not a replacement for professional mental health care.** If you're experiencing a crisis or serious mental health concerns, please seek immediate professional help.
 
-- Modify the theme colors in `styles.css`
-- Add new UI components in the chat container
-- Customize message rendering and tool confirmation dialogs
-- Add new controls to the header
+## 📚 Learn More
 
-### Example Use Cases
-
-1. **Customer Support Agent**
-   - Add tools for:
-     - Ticket creation/lookup
-     - Order status checking
-     - Product recommendations
-     - FAQ database search
-
-2. **Development Assistant**
-   - Integrate tools for:
-     - Code linting
-     - Git operations
-     - Documentation search
-     - Dependency checking
-
-3. **Data Analysis Assistant**
-   - Build tools for:
-     - Database querying
-     - Data visualization
-     - Statistical analysis
-     - Report generation
-
-4. **Personal Productivity Assistant**
-   - Implement tools for:
-     - Task scheduling with flexible timing options
-     - One-time, delayed, and recurring task management
-     - Task tracking with reminders
-     - Email drafting
-     - Note taking
-
-5. **Scheduling Assistant**
-   - Build tools for:
-     - One-time event scheduling using specific dates
-     - Delayed task execution (e.g., "remind me in 30 minutes")
-     - Recurring tasks using cron patterns
-     - Task payload management
-     - Flexible scheduling patterns
-
-Each use case can be implemented by:
-
-1. Adding relevant tools in `tools.ts`
-2. Customizing the UI for specific interactions
-3. Extending the agent's capabilities in `server.ts`
-4. Adding any necessary external API integrations
-
-## Learn More
-
-- [`agents`](https://github.com/cloudflare/agents/blob/main/packages/agents/README.md)
 - [Cloudflare Agents Documentation](https://developers.cloudflare.com/agents/)
 - [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
+- [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)
+- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)
 
-## License
+## 📝 License
 
 MIT
+
+## 🙏 Acknowledgments
+
+Built with [Cloudflare Agents SDK](https://www.npmjs.com/package/agents) and powered by Cloudflare Workers.
